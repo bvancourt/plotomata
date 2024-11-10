@@ -2,10 +2,9 @@
 import importlib
 import plotomata.plotters
 import plotomata.colors
-import plotomata.types
+
 importlib.reload(plotomata.plotters)
 importlib.reload(plotomata.colors)
-importlib.reload(plotomata.types)
 
 from .plotters import bar_plot, column_plot
 from .colors import tab20_colors, nb50_colors
