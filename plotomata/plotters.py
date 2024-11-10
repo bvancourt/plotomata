@@ -2,11 +2,13 @@ import numpy as np
 from numpy.typing import NDArray
 import matplotlib.pyplot as plt
 from matplotlib.axes._axes import Axes
-from typing import TypeAlias, Union
+from matplotlib.figure import Figure
+from typing import TypeAlias
 import seaborn as sns
 import os
 import pandas as pd
 import importlib
+
 
 # If the following doesn't make sense, just pretend it says "from .colors import ..."
 import sys
@@ -15,39 +17,37 @@ import colors
 from colors import tab20_colors, nb50_colors, Color, ListColor
 importlib.reload(colors)
 
-_ShadedRangeType: TypeAlias = Union[
-    None,
-    list[tuple[float, float] | dict[str, tuple[float, float]]],
-    tuple[float, float],
-    dict[str, tuple[float, float]],
-]
+_ShadedRangeType: TypeAlias = (
+    None |
+    list[tuple[float, float] | dict[str, tuple[float, float]]] |
+    tuple[float, float] |
+    dict[str, tuple[float, float]]
+)
 
 def bar_plot(
     data: pd.DataFrame,
-    colors: Union[None, str, dict[str, Color | ListColor]] = None,
-    col_colors: Union[None, str, dict[str, Color | ListColor]] = None,
+    colors: None | str | dict[str, Color | ListColor] = None,
+    col_colors: None | str | dict[str, Color | ListColor] = None,
     mode: str = "stacked",
-    disp_names: Union[dict[str, str], None] = None,
-    column_order: Union[list[int], NDArray, None] = None,
-    row_order: Union[list[int], NDArray, None] = None,
+    disp_names: dict[str, str] | None = None,
+    column_order: list[int] | NDArray | None = None,
+    row_order: list[int] | NDArray | None = None,
     item_width: float = 0.5,
     margin: float = 0.1,
     ax_height: float = 2.5,
     dpi: int = 600,
     pad_factor: float = 1.25,  # unsure if there would ever be a reason to change this.
-    edge_color: Union[Color, ListColor] = (0, 0, 0, 1),
+    edge_color: Color | ListColor = (0, 0, 0, 1),
     edge_width: float = 0.5,
-    rotate_labels: Union[bool, str] = "auto",
-    save_path: Union[
-        str, os.PathLike[str], None
-    ] = None,  # where to save the plot, which will be a .png file
-    y_label: Union[str, None] = None,
-    title: Union[str, None] = None,
+    rotate_labels: bool | str = "auto",
+    save_path: str | os.PathLike[str] | None = None,  # where to save the plot, which will be a .png file
+    y_label: str | None = None,
+    title: str | None = None,
     spine_mode: str = "tight",
     show: bool = True,
-    ax_in: Union[None, Axes] = None,
-    **kwargs: dict[str, Union[str, float, None]],
-):
+    ax_in: None | Axes = None,
+    **kwargs: dict[str, str | float | None],
+) -> None:
     """
     This makes a stacked bar chart or grouped bar chart.
 
@@ -109,29 +109,25 @@ def bar_plot(
         raise ValueError(f"col_colors={col_colors} not supported.")
 
     # Make matplotlib figure around axes of specified size.
+    ax_position = (
+        0.5 / pad_factor,
+        0.5 / pad_factor,
+        1 - 0.5 / pad_factor,
+        1 - 0.5 / pad_factor,
+    )
+    fig_size = (len(col_list) * item_width * pad_factor, ax_height * pad_factor)
     if ax_in is None:
-        fig_size = (len(col_list) * item_width * pad_factor, ax_height * pad_factor)
         fig = plt.figure(figsize=fig_size, dpi=dpi)
-        ax = fig.add_axes(
-            (
-                0.5 / pad_factor,
-                0.5 / pad_factor,
-                1 - 0.5 / pad_factor,
-                1 - 0.5 / pad_factor,
-            )
-        )
-    else:
+        ax = fig.add_axes(ax_position)
+    elif type(ax_in) is Axes:
         ax = ax_in
         fig = ax.get_figure()
-        fig.set_size_inches(len(col_list) * item_width * pad_factor, ax_height * pad_factor)
-        ax.set_position(
-            (
-                0.5 / pad_factor,
-                0.5 / pad_factor,
-                1 - 0.5 / pad_factor,
-                1 - 0.5 / pad_factor,
-            )
-        )
+        if not type(fig) is Figure:
+            raise ValueError(f"Failed to get_figure from provided Axes ax_in={ax_in}")
+        fig.set_size_inches(*fig_size)
+        ax.set_position(ax_position)
+    else:
+        raise TypeError(f'ax_in must be None or matplotlib.axes._axes.Axes, not {ax_in}.')
 
     col_offsets = np.arange(len(col_list)) * (item_width + margin)
     max_bar_height = 0
@@ -251,40 +247,36 @@ def bar_plot(
 
 
 def column_plot(
-    data_dict: Union[dict[str, NDArray[np.float64]], pd.DataFrame],  # {col_key:data}
+    data_dict: dict[str, NDArray[np.float64]] | pd.DataFrame,  # {col_key:data}
     show: bool = True,
-    save_path: Union[
-        str, os.PathLike[str], None
-    ] = None,  # where to save the plot, which will be a .png file
-    y_label: Union[str, None] = None,
-    title: Union[str, None] = None,
+    save_path: str | os.PathLike[str] | None = None,  # where to save the plot, which will be a .png file
+    y_label: str | None = None,
+    title: str | None = None,
     ax_height: float = 2.5,
     item_width: float = 0.75,
     pad_factor: float = 1.25,  # how much bigger the figure is than the axis; unnecessary kwarg?
-    colors: Union[
-        dict[str, Union[Color, ListColor]], str, None
-    ] = None,  # {col_key:color}
-    disp_names: Union[dict[str, str], None] = None,  # {col_key:display name}
-    dpi: Union[int, float] = 600,
-    v_range: Union[tuple[float, float], None, str] = None,
-    q_range: Union[tuple[float, float], None, str] = "auto",
+    colors: dict[str, Color | ListColor] | str | None = None,  # {col_key:color}
+    disp_names: dict[str, str] | None = None,  # {col_key:display name}
+    dpi: int | float = 600,
+    v_range: tuple[float, float] | None | str = None,
+    q_range: tuple[float, float] | None | str = "auto",
     min_data_density: float = 0.1,
-    dot_size: Union[float, str] = "auto",
+    dot_size: float | str = "auto",
     color_col_labels: bool = True,
-    color_points: Union[bool, str] = "auto",
+    color_points: bool | str = "auto",
     point_plot_type: str = "auto",  # how to plot individual daa points. Can be 'strip', 'swarm', or None.
-    rotate_labels: Union[bool, str] = "auto",
+    rotate_labels: bool | str = "auto",
     hide_borders: bool = True,
-    edge_color: Union[Color, ListColor] = (0, 0, 0, 1),
+    edge_color: Color | ListColor = (0, 0, 0, 1),
     edge_width: float = 0.5,
     vln_bw_adjust: float = 0.75,
     vln_grid_size: int = 400,
     shaded_range: _ShadedRangeType = None,
-    shaded_range_color: Union[Color, ListColor] = (0.8, 0.1, 0, 0.3),
+    shaded_range_color: Color | ListColor = (0.8, 0.1, 0, 0.3),
     spine_mode: str = "tight",
-    ax_in: Union[None, Axes] = None,
-    **kwargs: dict[str, Union[str, float, None]],
-):
+    ax_in: None | Axes = None,
+    **kwargs: dict[str, str | float | None],
+) -> None:
     """
     By default, this function makes a violin plot with some representation of the individual points.
 
@@ -411,29 +403,23 @@ def column_plot(
     )  # (1 + np.sqrt(dot_size)*np.diff(v_range)/500)
 
     # Make matplotlib figure around axes of specified size.
+    fig_size = (len(data_dict) * item_width * pad_factor, ax_height * pad_factor)
+    ax_position = (
+        0.5 / pad_factor,
+        0.5 / pad_factor,
+        1 - 0.5 / pad_factor,
+        1 - 0.5 / pad_factor,
+    )
     if ax_in is None:
-        fig_size = (len(data_dict) * item_width * pad_factor, ax_height * pad_factor)
         fig = plt.figure(figsize=fig_size, dpi=dpi)
-        ax = fig.add_axes(
-            (
-                0.5 / pad_factor,
-                0.5 / pad_factor,
-                1 - 0.5 / pad_factor,
-                1 - 0.5 / pad_factor,
-            )
-        )
+        ax = fig.add_axes(ax_position)
     elif type(ax_in) is Axes:
         ax = ax_in
         fig = ax.get_figure()
-        fig.set_size_inches(len(data_dict) * item_width * pad_factor, ax_height * pad_factor) # type: ignore
-        ax.set_position(
-            (
-                0.5 / pad_factor,
-                0.5 / pad_factor,
-                1 - 0.5 / pad_factor,
-                1 - 0.5 / pad_factor,
-            )
-        )
+        if not type(fig) is Figure:
+            raise ValueError(f"Failed to get_figure from provided Axes ax_in={ax_in}")
+        fig.set_size_inches(*fig_size)
+        ax.set_position(ax_position)
     else:
         raise TypeError(f'ax_in must be None or matplotlib.axes._axes.Axes, not {ax_in}.')
 
@@ -702,6 +688,3 @@ def column_plot(
 
     if show:
         fig.show()
-
-def hello_reticulate():
-    return "Hello R"
