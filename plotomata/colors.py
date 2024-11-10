@@ -3,7 +3,7 @@ from numpy.typing import NDArray
 import matplotlib.pyplot as plt
 import os
 import sys
-from typing import TypeAlias, Union
+from typing import TypeAlias
 
 #from .types import Color
 sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
@@ -11,13 +11,6 @@ sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
 # name some type aliases
 Color: TypeAlias = tuple[float, float, float, float]  # (r, g, b, a)
 ListColor: TypeAlias = list[float]  # [r, g, b, a]; may occur when getting colors form R
-ShadedRangeType: TypeAlias = Union[
-    None,
-    list[tuple[float, float] | dict[str, tuple[float, float]]],
-    tuple[float, float],
-    dict[str, tuple[float, float]],
-]
-
 
 # Matplotlib default colors:
 _mpl_tab20 = plt.get_cmap("tab20")
