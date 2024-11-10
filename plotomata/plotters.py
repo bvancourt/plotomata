@@ -1,9 +1,3 @@
-"""
-The overall goal of this module is to generate publication quality/style plots from single function calls.
-To avoid having to specify a lot of keyword arguments every time, default behaviors will be to automatically determine
-    something that is likely to look good from the provided data.
-"""
-
 import numpy as np
 from numpy.typing import NDArray
 import matplotlib.pyplot as plt
