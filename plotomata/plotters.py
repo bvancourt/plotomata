@@ -2,8 +2,22 @@
 This module contains the actual plotting functions for plotomata package.
 """
 
-import os
-import sys
+try:
+    from . import color_sets
+    from .color_sets import tab20_colors, nb50_colors, Color, ListColor
+    import os
+except Exception as e:
+    # normal import style above may not work with reticulate_source.py
+    try:
+        import os
+        import sys
+
+        sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
+        import color_sets
+        from color_sets import tab20_colors, nb50_colors, Color, ListColor
+    except:
+        raise e
+
 from typing import TypeAlias
 import importlib
 import numpy as np
@@ -14,19 +28,8 @@ from matplotlib.figure import Figure
 import seaborn as sns
 import pandas as pd
 
-try:
-    from . import colors
-    from .colors import tab20_colors, nb50_colors, Color, ListColor
-except Exception as e:
-    # normal import style above may not work with reticulate_source.py
-    try:
-        sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
-        import colors
-        from colors import tab20_colors, nb50_colors, Color, ListColor
-    except:
-        raise e
 
-importlib.reload(colors)
+importlib.reload(color_sets)
 
 
 _ShadedRangeType: TypeAlias = (
@@ -331,7 +334,7 @@ def column_plot(
         }
 
     if colors == "tab20":
-        colors = {
+        colors_dict = {
             str(key): tab20_colors[i] for i, key in enumerate(data_dict)
         }  # default is like Matplotlib
 
@@ -339,10 +342,19 @@ def column_plot(
             kwargs["alpha"] = 0.5  # type: ignore
 
     elif (colors is None) or (colors == "nb50"):
-        colors = {str(key): nb50_colors[i] for i, key in enumerate(data_dict)}
+        colors_dict = {
+            str(key): nb50_colors[i]  # black lint
+            for i, key in enumerate(data_dict)
+        }
 
         if not "alpha" in kwargs:
             kwargs["alpha"] = 0.5  # type: ignore
+
+    elif isinstance(colors, dict):
+        colors_dict = colors
+
+    else:
+        raise ValueError(f"recieved bad kwarg colors={colors}")
 
     if disp_names == None:
         disp_names = {str(key): str(key) for key in data_dict}
@@ -515,7 +527,7 @@ def column_plot(
                 ax=ax,
                 size=float(dot_size),
                 palette={
-                    disp_names[key]: colors[key]  # type: ignore
+                    disp_names[key]: colors_dict[key]  # type: ignore
                     for key in data_dict  # black lint
                 },
                 jitter=0.45,
@@ -547,7 +559,7 @@ def column_plot(
                 size=float(dot_size),
                 zorder=2,
                 palette={
-                    disp_names[key]: colors[key]  # type: ignore
+                    disp_names[key]: colors_dict[key]  # type: ignore
                     for key in data_dict  # black lint
                 },
             )
@@ -581,7 +593,7 @@ def column_plot(
         bw_adjust=vln_bw_adjust,
         gridsize=vln_grid_size,
         palette={
-            disp_names[key]: colors[key] for key in data_dict  # type: ignore
+            disp_names[key]: colors_dict[key] for key in data_dict  # type: ignore
         },  # black lint
         **{
             kwarg_key: kwargs[kwarg_key]
@@ -606,8 +618,8 @@ def column_plot(
     if rotate_labels:
         ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
     if color_col_labels:
-        for tick_text, key in zip(ax.get_xticklabels(), colors):
-            tick_text.set_color(tuple(colors[key]))  # type: ignore
+        for tick_text, key in zip(ax.get_xticklabels(), colors_dict):
+            tick_text.set_color(tuple(colors_dict[key]))  # type: ignore
 
     xlim = (  # This will break if plotting only 1 column...
         ax.get_xticks()[0] - 0.6 * (ax.get_xticks()[1] - ax.get_xticks()[0]),
@@ -642,8 +654,7 @@ def column_plot(
                 shaded_range = [tuple(shaded_range)]  # type: ignore
 
             for particular_range in shaded_range:  # type: ignore
-                if type(particular_range) is dict:
-
+                if isinstance(particular_range, dict):
                     col_edges = (
                         [-0.5]
                         + list(
@@ -666,8 +677,7 @@ def column_plot(
                             edgecolor=edge_color,
                         )
 
-                else:
-                    assert type(particular_range) == tuple
+                elif isinstance(particular_range, tuple):
                     ax.fill_between(
                         [
                             ax.get_xticks()[0] - 1 / 2,  # black lint
@@ -679,6 +689,11 @@ def column_plot(
                         zorder=6,
                         linewidth=0,
                         edgecolor=edge_color,
+                    )
+                else:
+                    raise TypeError(  # black lint
+                        f"All shaded range must be tuple or dict, "
+                        + "not {shaded_range}"
                     )
 
     if inner in {
