@@ -1,6 +1,6 @@
-python==3.11.9
-matplotlib==3.7.5
-pandas==2.2.2
-numpy==1.26.4
-seaborn==0.13.2
-pylint==3.2.7
+python==3.11
+matplotlib==3.7
+pandas==2.2
+numpy==1.26
+seaborn==0.13
+pylint==3.2
