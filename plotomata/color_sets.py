@@ -3,15 +3,11 @@ This module defines standard sets of colors and types used to store colors.
 """
 
 import os
-import sys
 from typing import TypeAlias
 import numpy as np
 from numpy.typing import NDArray
 import matplotlib.pyplot as plt
 
-
-# from .types import Color
-sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
 
 # name some type aliases
 Color: TypeAlias = tuple[float, float, float, float]  # (r, g, b, a)
