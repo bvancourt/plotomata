@@ -1,20 +1,27 @@
-import numpy as np
-from numpy.typing import NDArray
-import matplotlib.pyplot as plt
+"""
+This module defines standard sets of colors and types used to store colors.
+"""
+
 import os
 import sys
 from typing import TypeAlias
+import numpy as np
+from numpy.typing import NDArray
+import matplotlib.pyplot as plt
 
-#from .types import Color
+
+# from .types import Color
 sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
 
 # name some type aliases
 Color: TypeAlias = tuple[float, float, float, float]  # (r, g, b, a)
-ListColor: TypeAlias = list[float]  # [r, g, b, a]; may occur when getting colors form R
+ListColor: TypeAlias = list[float]  # [r, g, b, a]; (for getting colors form R)
 
 # Matplotlib default colors:
 _mpl_tab20 = plt.get_cmap("tab20")
-_tab20_order = np.array([i * 2 for i in range(10)] + [i * 2 + 1 for i in range(10)])
+_tab20_order = np.array(
+    [i * 2 for i in range(10)] + [i * 2 + 1 for i in range(10)]
+)
 tab20_colors: dict[int, Color] = {
     i_new: _mpl_tab20(i_old) for i_new, i_old in enumerate(_tab20_order)
 }
