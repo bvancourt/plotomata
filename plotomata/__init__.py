@@ -1,4 +1,9 @@
-# This first bit of code makes reloading the package reload each module.
+"""
+Plotomata is a package for automating generation of publication style/quality 
+plots. At this stage in development, it's use is not recommended, but it will be 
+great eventually, maybe.
+"""
+
 import importlib
 import plotomata.plotters
 import plotomata.colors
