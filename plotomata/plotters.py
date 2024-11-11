@@ -6,7 +6,7 @@ try:
     from . import color_sets
     from .color_sets import tab20_colors, nb50_colors, Color, ListColor
     import os
-except Exception as e:
+except ImportError as ie:
     # normal import style above may not work with reticulate_source.py
     try:
         import os
@@ -15,8 +15,10 @@ except Exception as e:
         sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
         import color_sets
         from color_sets import tab20_colors, nb50_colors, Color, ListColor
-    except:
-        raise e
+    except ImportError as ie2:
+        raise ie2 from ie
+except Exception as e:
+    raise e
 
 from typing import TypeAlias
 import importlib
@@ -101,12 +103,11 @@ def bar_plot(
             str(key): tab20_colors[i] for i, key in enumerate(row_list)
         }  # default is like Matplotlib
 
-        if not "alpha" in kwargs:
+        if "alpha" not in kwargs:
             kwargs["alpha"] = 0.5  # type: ignore
     elif (colors is None) or (colors == "nb50"):
         colors_dict = {
-            str(key): nb50_colors[i]
-            for i, key in enumerate(row_list)  # black lint
+            str(key): nb50_colors[i] for i, key in enumerate(row_list)
         }
     elif isinstance(colors, dict):
         colors_dict = colors
@@ -119,15 +120,13 @@ def bar_plot(
         }  # default is like Matplotlib
     elif col_colors == "nb50":
         col_colors_dict = {
-            str(key): nb50_colors[i]
-            for i, key in enumerate(col_list)  # black lint
+            str(key): nb50_colors[i] for i, key in enumerate(col_list)
         }
     elif isinstance(col_colors, dict):
         col_colors_dict = col_colors
     elif col_colors is None:
         col_colors_dict = {
-            str(key): (0, 0, 0, 1)
-            for i, key in enumerate(col_list)  # black lint
+            str(key): (0, 0, 0, 1) for i, key in enumerate(col_list)
         }
     elif col_colors == "from_colors":
         col_colors_dict = colors_dict
@@ -149,7 +148,7 @@ def bar_plot(
         ax = ax_in
         fig = ax.get_figure()
         if isinstance(fig, Figure):
-            raise ValueError(  # black lint
+            raise ValueError(
                 f"Failed to get_figure from provided Axes ax_in={ax_in}"
             )
         fig.set_size_inches(*fig_size)  # type: ignore
@@ -179,14 +178,13 @@ def bar_plot(
                 width=item_width,
                 color=colors_dict[label],
                 **{
-                    kwarg_key: kwargs[kwarg_key]
-                    for kwarg_key in kwargs
+                    kwarg_key: kwarg_val
+                    for kwarg_key, kwarg_val in kwargs.items()
                     if kwarg_key in plt_bar_kwargs
                 },  # type: ignore
             )
             bottoms = [
-                height + bottom  # black lint
-                for height, bottom in zip(heights, bottoms)
+                height + bottom for height, bottom in zip(heights, bottoms)
             ]
 
             max_bar_height = np.maximum(max_bar_height, np.max(bottoms))
@@ -247,7 +245,7 @@ def bar_plot(
 
     if rotate_labels == "auto":
         disp_label_lengths = np.array(
-            [len(disp_names_dict[key]) for key in col_list]  # black lint
+            [len(disp_names_dict[key]) for key in col_list]
         )
         rotate_labels = bool(
             np.max(disp_label_lengths[:-1] + disp_label_lengths[1:])
@@ -264,13 +262,13 @@ def bar_plot(
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(handles[::-1], labels[::-1], bbox_to_anchor=(1, 0.5))
 
-    if not y_label is None:
+    if y_label is not None:
         ax.set_ylabel(y_label)
 
-    if not title is None:
+    if title is not None:
         ax.set_title(title)
 
-    if not save_path is None:
+    if save_path is not None:
         fig.savefig(  # type: ignore
             save_path, bbox_inches="tight", transparent=True, dpi=dpi
         )
@@ -329,7 +327,7 @@ def column_plot(
         data_dict = {key: np.array(data_dict[key]) for key in data_dict.columns}
     else:  # Just in case the data are not already in numpy arrays.
         data_dict = {
-            str(key): np.array(data_dict[str(key)]).flatten()  # black lint
+            str(key): np.array(data_dict[str(key)]).flatten()
             for key in data_dict
         }
 
@@ -338,16 +336,15 @@ def column_plot(
             str(key): tab20_colors[i] for i, key in enumerate(data_dict)
         }  # default is like Matplotlib
 
-        if not "alpha" in kwargs:
+        if "alpha" not in kwargs:
             kwargs["alpha"] = 0.5  # type: ignore
 
     elif (colors is None) or (colors == "nb50"):
         colors_dict = {
-            str(key): nb50_colors[i]  # black lint
-            for i, key in enumerate(data_dict)
+            str(key): nb50_colors[i] for i, key in enumerate(data_dict)
         }
 
-        if not "alpha" in kwargs:
+        if "alpha" not in kwargs:
             kwargs["alpha"] = 0.5  # type: ignore
 
     elif isinstance(colors, dict):
@@ -356,7 +353,7 @@ def column_plot(
     else:
         raise ValueError(f"recieved bad kwarg colors={colors}")
 
-    if disp_names == None:
+    if disp_names is None:
         disp_names = {str(key): str(key) for key in data_dict}
 
     if (v_range == "auto") or (q_range == "auto"):
@@ -370,7 +367,7 @@ def column_plot(
 
         quantile_args = np.arange(1, n_bins + 1) / n_bins
         concatenated_data = np.hstack(
-            [data_dict[str(key)] for key in data_dict]  # black lint
+            [data_dict[str(key)] for key in data_dict]
         )
         quantile_values = np.quantile(concatenated_data, quantile_args)
         v_min = np.min([np.min(data_dict[key]) for key in data_dict])
@@ -426,7 +423,7 @@ def column_plot(
             / np.sqrt(
                 np.max(
                     [
-                        np.prod(np.array(data_dict[key].shape))  # black lint
+                        np.prod(np.array(data_dict[key].shape))
                         for key in data_dict
                     ]
                 )
@@ -462,7 +459,7 @@ def column_plot(
 
     # Make matplotlib figure around axes of specified size.
     pad_factor: float = 1.25  # demoted from kwargs
-    fig_size = (  # black lint
+    fig_size = (
         len(data_dict) * item_width * pad_factor,
         ax_height * pad_factor,
     )
@@ -479,7 +476,7 @@ def column_plot(
         ax = ax_in
         fig = ax.get_figure()
         if not isinstance(fig, Figure):
-            raise ValueError(  # black lint
+            raise ValueError(
                 f"Failed to get_figure from provided Axes ax_in={ax_in}"
             )
         fig.set_size_inches(*fig_size)
@@ -507,7 +504,7 @@ def column_plot(
         if (
             np.max(
                 [
-                    np.prod(renamed_data_dict[key].shape)  # black lint
+                    np.prod(renamed_data_dict[key].shape)
                     for key in renamed_data_dict
                 ]
             )
@@ -528,7 +525,7 @@ def column_plot(
                 size=float(dot_size),
                 palette={
                     disp_names[key]: colors_dict[key]  # type: ignore
-                    for key in data_dict  # black lint
+                    for key in data_dict
                 },
                 jitter=0.45,
                 zorder=0,
@@ -560,13 +557,13 @@ def column_plot(
                 zorder=2,
                 palette={
                     disp_names[key]: colors_dict[key]  # type: ignore
-                    for key in data_dict  # black lint
+                    for key in data_dict
                 },
             )
         else:
             sns.swarmplot(
                 renamed_data_dict,
-                ax=ax,  # black lint
+                ax=ax,
                 size=float(dot_size),
                 color="black",
                 zorder=0,
@@ -593,8 +590,9 @@ def column_plot(
         bw_adjust=vln_bw_adjust,
         gridsize=vln_grid_size,
         palette={
-            disp_names[key]: colors_dict[key] for key in data_dict  # type: ignore
-        },  # black lint
+            disp_names[key]: colors_dict[key]
+            for key in data_dict  # type: ignore
+        },
         **{
             kwarg_key: kwargs[kwarg_key]
             for kwarg_key in kwargs
@@ -606,12 +604,10 @@ def column_plot(
 
     if rotate_labels == "auto":
         disp_label_lengths = np.array(
-            [len(disp_names[key]) for key in data_dict]  # black lint
+            [len(disp_names[key]) for key in data_dict]
         )
         rotate_labels = bool(
-            np.max(
-                disp_label_lengths[:-1] + disp_label_lengths[1:]
-            )  # black lint
+            np.max(disp_label_lengths[:-1] + disp_label_lengths[1:])
             / item_width
             > 14
         )
@@ -641,12 +637,12 @@ def column_plot(
     else:
         ax.spines[["right", "top", "left"]].set_visible(False)
 
-    if not shaded_range is None:
+    if shaded_range is not None:
         if type(shaded_range) in {dict, tuple}:
             shaded_range = [shaded_range]  # type: ignore
 
         if isinstance(shaded_range, list):
-            if (len(shaded_range) == 2) and (  # black lint
+            if (len(shaded_range) == 2) and (
                 type(shaded_range[0]) in {int, float}
             ):
                 # When using this function from R using reticulate,
@@ -680,7 +676,7 @@ def column_plot(
                 elif isinstance(particular_range, tuple):
                     ax.fill_between(
                         [
-                            ax.get_xticks()[0] - 1 / 2,  # black lint
+                            ax.get_xticks()[0] - 1 / 2,
                             ax.get_xticks()[-1] + 1 / 2,
                         ],
                         [particular_range[0]] * 2,
@@ -691,9 +687,9 @@ def column_plot(
                         edgecolor=edge_color,
                     )
                 else:
-                    raise TypeError(  # black lint
-                        f"All shaded range must be tuple or dict, "
-                        + "not {shaded_range}"
+                    raise TypeError(
+                        "All shaded range must be tuple or dict, " +
+                        "not {shaded_range}"
                     )
 
     if inner in {
@@ -772,13 +768,13 @@ def column_plot(
                 zorder=4,
             )
 
-    if not y_label is None:
+    if y_label is not None:
         ax.set_ylabel(y_label)
 
-    if not title is None:
+    if title is not None:
         ax.set_title(title)
 
-    if not save_path == None:
+    if save_path is not None:
         fig.savefig(save_path, bbox_inches="tight", transparent=True, dpi=dpi)
 
     if show:
