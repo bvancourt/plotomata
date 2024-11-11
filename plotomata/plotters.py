@@ -1,28 +1,34 @@
+"""
+This module contains the actual plotting functions for plotomata package.
+"""
+
+import os
+import sys
+from typing import TypeAlias
+import importlib
 import numpy as np
 from numpy.typing import NDArray
 import matplotlib.pyplot as plt
 from matplotlib.axes._axes import Axes
 from matplotlib.figure import Figure
-from typing import TypeAlias
 import seaborn as sns
-import os
 import pandas as pd
-import importlib
 
-
-# If the following doesn't make sense, just pretend it says "from .colors import ..."
-import sys
+# If this doesn't make sense, just pretend it says "from .colors import ..."
 sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
 import colors
 from colors import tab20_colors, nb50_colors, Color, ListColor
+
 importlib.reload(colors)
 
+
 _ShadedRangeType: TypeAlias = (
-    None |
-    list[tuple[float, float] | dict[str, tuple[float, float]]] |
-    tuple[float, float] |
-    dict[str, tuple[float, float]]
+    None
+    | list[tuple[float, float] | dict[str, tuple[float, float]]]
+    | tuple[float, float]
+    | dict[str, tuple[float, float]]
 )
+
 
 def bar_plot(
     data: pd.DataFrame,
@@ -36,11 +42,12 @@ def bar_plot(
     margin: float = 0.1,
     ax_height: float = 2.5,
     dpi: int = 600,
-    pad_factor: float = 1.25,  # unsure if there would ever be a reason to change this.
     edge_color: Color | ListColor = (0, 0, 0, 1),
     edge_width: float = 0.5,
     rotate_labels: bool | str = "auto",
-    save_path: str | os.PathLike[str] | None = None,  # where to save the plot, which will be a .png file
+    save_path: (
+        str | os.PathLike[str] | None
+    ) = None,  # where to save the plot, which will be a .png file
     y_label: str | None = None,
     title: str | None = None,
     spine_mode: str = "tight",
@@ -56,11 +63,11 @@ def bar_plot(
     - allow other input types for data
     - allow horizontal
     """
-    data_df = (
-        data  # in the future, other types for data could be converted to DataFrame
-    )
+    pad_factor: float = 1.25  # demoted from kwargs
 
-    if type(disp_names) == dict:
+    data_df = data  # for future support of other data formats
+
+    if isinstance(disp_names, dict):
         disp_names_dict = disp_names
     elif disp_names is None:
         disp_names_dict = {
@@ -87,8 +94,11 @@ def bar_plot(
         if not "alpha" in kwargs:
             kwargs["alpha"] = 0.5  # type: ignore
     elif (colors is None) or (colors == "nb50"):
-        colors_dict = {str(key): nb50_colors[i] for i, key in enumerate(row_list)}
-    elif type(colors) is dict:
+        colors_dict = {
+            str(key): nb50_colors[i]
+            for i, key in enumerate(row_list)  # black lint
+        }
+    elif isinstance(colors, dict):
         colors_dict = colors
     else:
         raise ValueError(f"colors={colors} not supported.")
@@ -98,11 +108,17 @@ def bar_plot(
             str(key): tab20_colors[i] for i, key in enumerate(col_list)
         }  # default is like Matplotlib
     elif col_colors == "nb50":
-        col_colors_dict = {str(key): nb50_colors[i] for i, key in enumerate(col_list)}
-    elif type(col_colors) is dict:
+        col_colors_dict = {
+            str(key): nb50_colors[i]
+            for i, key in enumerate(col_list)  # black lint
+        }
+    elif isinstance(col_colors, dict):
         col_colors_dict = col_colors
     elif col_colors is None:
-        col_colors_dict = {str(key): (0, 0, 0, 1) for i, key in enumerate(col_list)}
+        col_colors_dict = {
+            str(key): (0, 0, 0, 1)
+            for i, key in enumerate(col_list)  # black lint
+        }
     elif col_colors == "from_colors":
         col_colors_dict = colors_dict
     else:
@@ -119,15 +135,19 @@ def bar_plot(
     if ax_in is None:
         fig = plt.figure(figsize=fig_size, dpi=dpi)
         ax = fig.add_axes(ax_position)
-    elif type(ax_in) is Axes:
+    elif isinstance(ax_in, Axes):
         ax = ax_in
         fig = ax.get_figure()
-        if not type(fig) is Figure:
-            raise ValueError(f"Failed to get_figure from provided Axes ax_in={ax_in}")
-        fig.set_size_inches(*fig_size)
+        if isinstance(fig, Figure):
+            raise ValueError(  # black lint
+                f"Failed to get_figure from provided Axes ax_in={ax_in}"
+            )
+        fig.set_size_inches(*fig_size)  # type: ignore
         ax.set_position(ax_position)
     else:
-        raise TypeError(f'ax_in must be None or matplotlib.axes._axes.Axes, not {ax_in}.')
+        raise TypeError(
+            f"ax_in must be None or matplotlib.axes._axes.Axes, not {ax_in}."
+        )
 
     col_offsets = np.arange(len(col_list)) * (item_width + margin)
     max_bar_height = 0
@@ -138,9 +158,7 @@ def bar_plot(
         bottoms = [0 for _ in col_list]
 
         for i_layer, label in enumerate(data_df.index):
-            heights = [
-                data_df[col_key].iloc[i_layer] for col_key in col_list
-            ]
+            heights = [data_df[col_key].iloc[i_layer] for col_key in col_list]
             ax.bar(
                 col_offsets,
                 heights,
@@ -156,7 +174,10 @@ def bar_plot(
                     if kwarg_key in plt_bar_kwargs
                 },  # type: ignore
             )
-            bottoms = [height + bottom for height, bottom in zip(heights, bottoms)]
+            bottoms = [
+                height + bottom  # black lint
+                for height, bottom in zip(heights, bottoms)
+            ]
 
             max_bar_height = np.maximum(max_bar_height, np.max(bottoms))
 
@@ -215,7 +236,9 @@ def bar_plot(
         ax.spines[["right", "top", "left"]].set_visible(False)
 
     if rotate_labels == "auto":
-        disp_label_lengths = np.array([len(disp_names_dict[key]) for key in col_list])
+        disp_label_lengths = np.array(
+            [len(disp_names_dict[key]) for key in col_list]  # black lint
+        )
         rotate_labels = bool(
             np.max(disp_label_lengths[:-1] + disp_label_lengths[1:])
             / (item_width + margin)
@@ -238,10 +261,12 @@ def bar_plot(
         ax.set_title(title)
 
     if not save_path is None:
-        fig.savefig(save_path, bbox_inches="tight", transparent=True, dpi=dpi)
+        fig.savefig(  # type: ignore
+            save_path, bbox_inches="tight", transparent=True, dpi=dpi
+        )
 
     if show:
-        fig.show()
+        fig.show()  # type: ignore
     elif ax_in is None:
         plt.close(fig)
 
@@ -249,12 +274,13 @@ def bar_plot(
 def column_plot(
     data_dict: dict[str, NDArray[np.float64]] | pd.DataFrame,  # {col_key:data}
     show: bool = True,
-    save_path: str | os.PathLike[str] | None = None,  # where to save the plot, which will be a .png file
+    save_path: (
+        str | os.PathLike[str] | None
+    ) = None,  # where to save the plot, which will be a .png file
     y_label: str | None = None,
     title: str | None = None,
     ax_height: float = 2.5,
     item_width: float = 0.75,
-    pad_factor: float = 1.25,  # how much bigger the figure is than the axis; unnecessary kwarg?
     colors: dict[str, Color | ListColor] | str | None = None,  # {col_key:color}
     disp_names: dict[str, str] | None = None,  # {col_key:display name}
     dpi: int | float = 600,
@@ -264,9 +290,8 @@ def column_plot(
     dot_size: float | str = "auto",
     color_col_labels: bool = True,
     color_points: bool | str = "auto",
-    point_plot_type: str = "auto",  # how to plot individual daa points. Can be 'strip', 'swarm', or None.
+    point_plot_type: str = "auto",  # Can be 'strip', 'swarm', or None.
     rotate_labels: bool | str = "auto",
-    hide_borders: bool = True,
     edge_color: Color | ListColor = (0, 0, 0, 1),
     edge_width: float = 0.5,
     vln_bw_adjust: float = 0.75,
@@ -278,19 +303,24 @@ def column_plot(
     **kwargs: dict[str, str | float | None],
 ) -> None:
     """
-    By default, this function makes a violin plot with some representation of the individual points.
+    By default, this function makes a violin plot with some representation of
+        the individual points.
 
     Features to add:
-    - per-column shaded region dict support
     - hex color string support
     - improve interface for non-violin modes
+
+    Code style issues:
+    - make new variables instead of changing the values of arguments
     """
+
     # Standardize argument types
-    if type(data_dict) is pd.DataFrame:
+    if isinstance(data_dict, pd.DataFrame):
         data_dict = {key: np.array(data_dict[key]) for key in data_dict.columns}
     else:  # Just in case the data are not already in numpy arrays.
         data_dict = {
-            str(key): np.array(data_dict[str(key)]).flatten() for key in data_dict
+            str(key): np.array(data_dict[str(key)]).flatten()  # black lint
+            for key in data_dict
         }
 
     if colors == "tab20":
@@ -312,14 +342,17 @@ def column_plot(
 
     if (v_range == "auto") or (q_range == "auto"):
         n_bins: int = (
-            100  # number of histogram bins used to check potential clipping to reduce plot range
+            100  # number of histogram bins
+            #     (Used to check potential clipping and reduce plot range.)
         )
         clipping_aversion_factor: float = (
-            3  # effectively counts top and bottom bins as having more data by this much.
+            3  # effectively increase top and bottom bin counts by this factor.
         )
 
         quantile_args = np.arange(1, n_bins + 1) / n_bins
-        concatenated_data = np.hstack([data_dict[str(key)] for key in data_dict])
+        concatenated_data = np.hstack(
+            [data_dict[str(key)] for key in data_dict]  # black lint
+        )
         quantile_values = np.quantile(concatenated_data, quantile_args)
         v_min = np.min([np.min(data_dict[key]) for key in data_dict])
         v_max = np.max([np.max(data_dict[key]) for key in data_dict])
@@ -372,7 +405,12 @@ def column_plot(
         dot_size = np.clip(
             20
             / np.sqrt(
-                np.max([np.prod(np.array(data_dict[key].shape)) for key in data_dict])
+                np.max(
+                    [
+                        np.prod(np.array(data_dict[key].shape))  # black lint
+                        for key in data_dict
+                    ]
+                )
             ),
             0.1,
             20.0,
@@ -391,7 +429,8 @@ def column_plot(
         inner = "auto"
         kwargs["inner"] = None  # type: ignore
 
-    # Derive substantially expanded v_range to clip data for violin and slightly expanded for plot range.
+    # Derive substantially expanded range to clip data for violin
+    #   and slightly expanded range for plot range.
     v_middle = np.mean((float(v_range[0]), float(v_range[1])))
     clip_max = v_middle + (float(v_range[1]) - v_middle) * 1.5
     clip_min = v_middle + (float(v_range[0]) - v_middle) * 1.5
@@ -403,7 +442,11 @@ def column_plot(
     )  # (1 + np.sqrt(dot_size)*np.diff(v_range)/500)
 
     # Make matplotlib figure around axes of specified size.
-    fig_size = (len(data_dict) * item_width * pad_factor, ax_height * pad_factor)
+    pad_factor: float = 1.25  # demoted from kwargs
+    fig_size = (  # black lint
+        len(data_dict) * item_width * pad_factor,
+        ax_height * pad_factor,
+    )
     ax_position = (
         0.5 / pad_factor,
         0.5 / pad_factor,
@@ -413,17 +456,22 @@ def column_plot(
     if ax_in is None:
         fig = plt.figure(figsize=fig_size, dpi=dpi)
         ax = fig.add_axes(ax_position)
-    elif type(ax_in) is Axes:
+    elif isinstance(ax_in, Axes):
         ax = ax_in
         fig = ax.get_figure()
-        if not type(fig) is Figure:
-            raise ValueError(f"Failed to get_figure from provided Axes ax_in={ax_in}")
+        if not isinstance(fig, Figure):
+            raise ValueError(  # black lint
+                f"Failed to get_figure from provided Axes ax_in={ax_in}"
+            )
         fig.set_size_inches(*fig_size)
         ax.set_position(ax_position)
     else:
-        raise TypeError(f'ax_in must be None or matplotlib.axes._axes.Axes, not {ax_in}.')
+        raise TypeError(
+            f"ax_in must be None or matplotlib.axes._axes.Axes, not {ax_in}."
+        )
 
-    # Make a version of the input data that has the final display names as keys and also clips data if necessary
+    # Make a version of the input data that has the final display names as keys
+    #   and also clips data, if necessary.
     renamed_data_dict = {
         disp_names[key]: np.clip(data_dict[key], clip_min, clip_max)
         for key in data_dict
@@ -438,7 +486,12 @@ def column_plot(
     }
     if point_plot_type in {"auto", "Auto"}:
         if (
-            np.max([np.prod(renamed_data_dict[key].shape) for key in renamed_data_dict])
+            np.max(
+                [
+                    np.prod(renamed_data_dict[key].shape)  # black lint
+                    for key in renamed_data_dict
+                ]
+            )
             < 500
         ):
             point_plot_type = "swarm"
@@ -454,7 +507,10 @@ def column_plot(
                 renamed_data_dict,
                 ax=ax,
                 size=float(dot_size),
-                palette={disp_names[key]: colors[key] for key in data_dict},  # type: ignore
+                palette={
+                    disp_names[key]: colors[key]  # type: ignore
+                    for key in data_dict  # black lint
+                },
                 jitter=0.45,
                 zorder=0,
             )
@@ -483,11 +539,18 @@ def column_plot(
                 ax=ax,
                 size=float(dot_size),
                 zorder=2,
-                palette={disp_names[key]: colors[key] for key in data_dict},  # type: ignore
+                palette={
+                    disp_names[key]: colors[key]  # type: ignore
+                    for key in data_dict  # black lint
+                },
             )
         else:
             sns.swarmplot(
-                renamed_data_dict, ax=ax, size=float(dot_size), color="black", zorder=0
+                renamed_data_dict,
+                ax=ax,  # black lint
+                size=float(dot_size),
+                color="black",
+                zorder=0,
             )
         sns.swarmplot(
             clipped_data, ax=ax, size=float(dot_size), color="red", zorder=5
@@ -496,7 +559,8 @@ def column_plot(
         pass
     else:
         raise ValueError(
-            f"point_plot_type should be 'strip', 'swarm', or None, not {point_plot_type}."
+            "point_plot_type should be 'strip', 'swarm', or None,"
+            + f" not {point_plot_type}."
         )
 
     sns.violinplot(
@@ -509,7 +573,9 @@ def column_plot(
         edgecolor=edge_color,
         bw_adjust=vln_bw_adjust,
         gridsize=vln_grid_size,
-        palette={disp_names[key]: colors[key] for key in data_dict},  # type: ignore
+        palette={
+            disp_names[key]: colors[key] for key in data_dict  # type: ignore
+        },  # black lint
         **{
             kwarg_key: kwargs[kwarg_key]
             for kwarg_key in kwargs
@@ -520,9 +586,15 @@ def column_plot(
     ax.set_ylim((y_min, y_max))
 
     if rotate_labels == "auto":
-        disp_label_lengths = np.array([len(disp_names[key]) for key in data_dict])
+        disp_label_lengths = np.array(
+            [len(disp_names[key]) for key in data_dict]  # black lint
+        )
         rotate_labels = bool(
-            np.max(disp_label_lengths[:-1] + disp_label_lengths[1:]) / item_width > 14
+            np.max(
+                disp_label_lengths[:-1] + disp_label_lengths[1:]
+            )  # black lint
+            / item_width
+            > 14
         )
     if rotate_labels:
         ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
@@ -530,16 +602,11 @@ def column_plot(
         for tick_text, key in zip(ax.get_xticklabels(), colors):
             tick_text.set_color(tuple(colors[key]))  # type: ignore
 
-    ax.set_xlim(
-        (
-            ax.get_xticks()[0]
-            - 0.6
-            * (
-                ax.get_xticks()[1] - ax.get_xticks()[0]
-            ),  # Yes, this will break if only 1 column...
-            ax.get_xticks()[-1] + 0.6 * (ax.get_xticks()[-1] - ax.get_xticks()[-2]),
-        )
+    xlim = (  # This will break if plotting only 1 column...
+        ax.get_xticks()[0] - 0.6 * (ax.get_xticks()[1] - ax.get_xticks()[0]),
+        ax.get_xticks()[-1] + 0.6 * (ax.get_xticks()[-1] - ax.get_xticks()[-2]),
     )
+    ax.set_xlim(xlim)
 
     if spine_mode == "tight":
         ax.spines[["right", "top", "left"]].set_visible(False)
@@ -559,9 +626,12 @@ def column_plot(
         if type(shaded_range) in {dict, tuple}:
             shaded_range = [shaded_range]  # type: ignore
 
-        if type(shaded_range) is list:
-            if (len(shaded_range) == 2) and (type(shaded_range[0]) in {int, float}):
-                # When using this function from R using reticulate, list may show up that should have been a tuple.
+        if isinstance(shaded_range, list):
+            if (len(shaded_range) == 2) and (  # black lint
+                type(shaded_range[0]) in {int, float}
+            ):
+                # When using this function from R using reticulate,
+                #   list may show up that should have been a tuple.
                 shaded_range = [tuple(shaded_range)]  # type: ignore
 
             for particular_range in shaded_range:  # type: ignore
@@ -592,7 +662,10 @@ def column_plot(
                 else:
                     assert type(particular_range) == tuple
                     ax.fill_between(
-                        [ax.get_xticks()[0] - 1 / 2, ax.get_xticks()[-1] + 1 / 2],
+                        [
+                            ax.get_xticks()[0] - 1 / 2,  # black lint
+                            ax.get_xticks()[-1] + 1 / 2,
+                        ],
                         [particular_range[0]] * 2,
                         [particular_range[1]] * 2,
                         color=shaded_range_color,
