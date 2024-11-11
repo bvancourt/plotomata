@@ -14,10 +14,17 @@ from matplotlib.figure import Figure
 import seaborn as sns
 import pandas as pd
 
-# If this doesn't make sense, just pretend it says "from .colors import ..."
-sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
-import colors
-from colors import tab20_colors, nb50_colors, Color, ListColor
+try:
+    from . import colors
+    from .colors import tab20_colors, nb50_colors, Color, ListColor
+except Exception as e:
+    # normal import style above may not work with reticulate_source.py
+    try:
+        sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
+        import colors
+        from colors import tab20_colors, nb50_colors, Color, ListColor
+    except:
+        raise e
 
 importlib.reload(colors)
 
