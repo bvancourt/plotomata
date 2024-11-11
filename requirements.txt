@@ -1,5 +1,0 @@
-matplotlib==3.7
-pandas==2.2
-numpy==1.26
-seaborn==0.13
-pylint==3.2
