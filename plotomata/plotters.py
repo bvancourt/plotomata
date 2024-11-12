@@ -20,13 +20,15 @@ except ImportError as ie:
 except Exception as e:
     raise e
 
-from typing import TypeAlias
+from typing import TypeAlias, Callable
+import warnings
 import importlib
 import numpy as np
 from numpy.typing import NDArray
 import matplotlib.pyplot as plt
 from matplotlib.axes._axes import Axes
 from matplotlib.figure import Figure
+warnings.filterwarnings("ignore", module = "matplotlib")
 import seaborn as sns
 import pandas as pd
 
@@ -147,7 +149,7 @@ def bar_plot(
     elif isinstance(ax_in, Axes):
         ax = ax_in
         fig = ax.get_figure()
-        if isinstance(fig, Figure):
+        if not isinstance(fig, Figure):
             raise ValueError(
                 f"Failed to get_figure from provided Axes ax_in={ax_in}"
             )
@@ -312,11 +314,13 @@ def column_plot(
 ) -> None:
     """
     By default, this function makes a violin plot with some representation of
-        the individual points.
+        the individual points. It could also be just swarm plots, box and
+        whiskers, etc. though some functionality may not yet be implemented.
 
     Features to add:
     - hex color string support
     - improve interface for non-violin modes
+    - horizontal mode
 
     Code style issues:
     - make new variables instead of changing the values of arguments
@@ -767,6 +771,272 @@ def column_plot(
                 linewidth=linewidth,
                 zorder=4,
             )
+
+    if y_label is not None:
+        ax.set_ylabel(y_label)
+
+    if title is not None:
+        ax.set_title(title)
+
+    if save_path is not None:
+        fig.savefig(save_path, bbox_inches="tight", transparent=True, dpi=dpi)
+
+    if show:
+        fig.show()
+
+
+def categorical_scatter(
+    data: pd.DataFrame | dict[str, NDArray | list],
+    *y_c: tuple[NDArray | list, NDArray | list],
+    colors: dict[str, Color] | str = "nb50",
+    size: float | list[float] | str = "auto",
+    disp_names: dict[str | int, str] | None = None,
+    mix_mode: str = "z_shuffle",  # 'z_shuffle', 'ordered', ('file_mix'?)
+    ax_dims: tuple[float, float] = (2.5, 2.5),
+    ax_in: Axes | None = None,
+    dpi: int = 600,
+    x_label: str | None = None,
+    y_label: str | None = None,
+    title: str | None = None,
+    include_cat_legend: bool = True,
+    include_size_legend: bool = False,
+    size_to_area_func: Callable[[NDArray], NDArray] | None = None,
+    save_path: (
+        str | os.PathLike[str] | None
+    ) = None,  # where to save the plot, which will be a .png file
+    show: bool = True,
+    **kwargs,
+) -> None:
+    """
+    This function makes a scatter plot where the points each point is colored by
+    one of a dicrete set of categories (e.g. clusters, conditions).
+    """
+    if len(y_c) == 2: # recieved 3 args -> interpret as x, y, and c.
+        x_raw, y_raw, c_raw = data, y_c[0], y_c[1]
+        
+    elif (len(y_c) == 1) | (len(y_c) > 2):
+        raise TypeError(
+            f"Number of arguments must be 1 or 3 not {len(y_c) + 1}."
+        )
+    
+    elif isinstance(data, dict):
+        if ("x" in data) and ("y" in data) and ("c" in data):
+            x_raw, y_raw, c_raw = data['x'], data['y'], data['c']
+        else:
+            raise ValueError(
+                "data of type dict must have keys 'x', 'y', and 'c'."
+            )
+        
+    elif isinstance(data, pd.DataFrame):
+        if (
+            ("x" in data.columns) and 
+            ("y" in data.columns) and 
+            ("c" in data.columns)
+        ):
+            data_dropna = data.dropna(axis="rows") # type: ignore
+            x_raw = data_dropna['x']
+            y_raw = data_dropna['y']
+            c_raw = list(data_dropna['c'])
+        else:
+            raise ValueError(
+                "data of type DataFrame must have columns 'x', 'y', and 'c'."
+            )
+    else:
+        raise TypeError(
+            f"Try providing dict or DataFrame with columns 'x', 'y', and 'c'."
+        )
+    
+    if colors == "tab20":
+        colors_dict = tab20_colors  # like Matplotlib
+        n_colors = 20
+
+    elif colors == "nb50":
+        colors_dict = nb50_colors
+        n_colors = 50
+
+    elif isinstance(colors, dict):
+        colors_dict = colors
+        n_colors = len(colors_dict)
+
+    else:
+        raise TypeError(f"bad kwarg colors = {colors}")
+
+    # get s_raw, a list of the sizes of each point on the plot.
+    if isinstance(size, float):
+        s_raw = size*np.ones(len(c_raw))
+    elif isinstance(size, list):
+        if (len(size) == len(c_raw)):
+            s_raw = np.array(size)
+        else:
+            raise ValueError("If s is a list, it must be the same length as c.")
+    elif size == "auto":
+        uniform_s = 200*np.prod(ax_dims)/(5+len(c_raw))*np.ones(len(c_raw))
+        if isinstance(data, (dict, pd.DataFrame)):
+            if 's' in data:
+                s_raw = np.array(data["s"])
+            else:
+                s_raw = uniform_s
+        else:
+            s_raw = uniform_s
+    else:
+        raise TypeError(
+            f"bad kwarg size = {size}; must be list, float, or 'auto'."
+        )
+    
+    if size_to_area_func is None:
+        size_func = lambda x : x
+    elif callable(size_to_area_func):
+        size_func = size_to_area_func
+    else:
+        raise TypeError(
+            "size_to_area_func should be callable or None, "+
+            "Not {size_to_area_func}."
+        )
+    
+    if not len(x_raw) == len(y_raw) == len(c_raw) == len(s_raw):
+        raise ValueError(
+            f"incompatible lengths:\n"
+            + f"    len(x)={len(x_raw)}\n"
+            + f"    len(y)={len(y_raw)}\n"
+            + f"    len(c)={len(c_raw)}\n"
+            + f"    len(s)={len(s_raw)}"
+        )
+
+    cat_set = set(c_raw)
+
+    if not all([cat in colors_dict for cat in c_raw]):
+        # more work will be requred to map c to colors
+        if all(isinstance(key, int) for key in colors_dict.keys()):
+            try:
+                # if all elements of c can be converted to integers, this will
+                # run without an error:
+                _ = {int(cat) for cat in c_raw} # type: ignore
+
+                cat_to_color_key = {
+                    cat:int(cat)%n_colors # type: ignore
+                    for cat in set(c_raw)
+                }
+            except ValueError:
+                # In this case, categories will be arbitrarily mapped to colors.
+                # This could lead to inconsistent color coding between plots.
+                cat_to_color_key = {
+                    cat:i%n_colors for i, cat in enumerate(cat_set)
+                }
+                if not all(
+                    [(key in colors_dict) for key in cat_to_color_key.values()]
+                ):
+                    raise ValueError(
+                    "Color mapping error. kwarg colors =" +
+                    f" {colors} may have be a dict with " +
+                    "non-sequential integer keys that do not exactly match" +
+                    f"the values of 'c', {cat_set}."
+                 )
+            except Exception as e:
+                raise ValueError("Unexpected error in color mapping.") from e
+
+    else:
+        cat_to_color_key = {cat:cat for cat in colors_dict}
+
+    if not disp_names is None:
+        if all([cat in disp_names for cat in cat_set]):
+            cat_to_disp_name = {
+                c:disp_names[c] for c in cat_set # type: ignore
+            }
+        else:
+            raise ValueError(
+                "If provided, disp names must be a dict with keys matching " +
+                f"all values of 'c'. \n disp_names:{disp_names}\n" +
+                f"keys needed: {cat_set}."
+            )
+    else:
+        cat_to_disp_name = {
+            c:str(c) for c in cat_set
+        }
+
+    if mix_mode == "z_shuffle":
+        point_order = np.random.permutation(len(c_raw))
+    elif mix_mode == "ordered":
+        point_order = np.arange(len(c_raw))
+    else:
+        raise ValueError(
+            f"mix_mode {mix_mode} not recognized; try 'z_shuffle' or 'ordered'"
+        )
+
+    # prepare arguments for plt.scatter()
+    x_array = np.array(x_raw)[point_order]
+    y_array = np.array(y_raw)[point_order]
+    color_list = [
+        colors_dict[cat_to_color_key[c_raw[i]]] # type: ignore
+        for i in point_order
+    ]
+    s_array = np.array(s_raw)[point_order]
+
+    # Make matplotlib figure around axes of specified size.
+    pad_factor = 1.25
+    ax_position = (
+        0.5 / pad_factor,
+        0.5 / pad_factor,
+        1 - 0.5 / pad_factor,
+        1 - 0.5 / pad_factor,
+    )
+    fig_size = (ax_dims[0] * pad_factor, ax_dims[1] * pad_factor)
+    if ax_in is None:
+        fig = plt.figure(figsize=fig_size, dpi=dpi)
+        ax = fig.add_axes(ax_position)
+    elif isinstance(ax_in, Axes):
+        ax = ax_in
+        fig = ax.get_figure()
+        if not isinstance(fig, Figure):
+            raise ValueError(
+                f"Failed to get_figure from provided Axes ax_in={ax_in}"
+            )
+        fig.set_size_inches(*fig_size)  # type: ignore
+        ax.set_position(ax_position)
+    else:
+        raise TypeError(
+            f"ax_in must be None or matplotlib.axes._axes.Axes, not {ax_in}."
+        )
+
+    scatter_kwargs = {"marker", "alpha", "edgecolors"}
+
+    if mix_mode in {'z_shuffle', 'ordered'}:
+        ax.scatter(
+            x_array, y_array, 
+            c=color_list,
+            s=size_func(s_array),
+            linewidths=0,
+            **{key:val # type: ignore
+              for key, val in kwargs.items() if key in scatter_kwargs
+            }
+        )
+    else: # If a mode was added to the previous mix_mode check but not here.
+        raise ValueError(
+            f"mix_mode {mix_mode} not recognized. Try 'z_shuffle' or 'ordered'"
+        )
+    
+    if include_cat_legend:
+        # create figure (not to ever be shown) to copy desired legend from
+        legend_fig = plt.figure(figsize=(.5, .5))
+        legend_ax = legend_fig.add_axes((0, 0, 1, 1))
+        for cat, key in cat_to_color_key.items(): # type: ignore
+            if (cat in cat_to_disp_name) and (key in colors_dict):
+                legend_ax.scatter(
+                    0, 
+                    0, 
+                    c=colors_dict[key], # type: ignore
+                    label=cat_to_disp_name[cat],
+                    linewidths=0,
+                    **{key:val # type: ignore
+                    for key, val in kwargs.items() 
+                    if key in scatter_kwargs^{"alpha"}
+                    }
+                )
+        handles, labels = legend_ax.get_legend_handles_labels()
+        plt.close(legend_fig)
+        ax.legend(handles, labels, bbox_to_anchor=(1, 0.75), markerscale=2)
+
+    if x_label is not None:
+        ax.set_xlabel(x_label)
 
     if y_label is not None:
         ax.set_ylabel(y_label)
