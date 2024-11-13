@@ -786,8 +786,8 @@ def column_plot(
 
 
 def categorical_scatter(
-    data: pd.DataFrame | dict[str, NDArray | list],
-    *y_c: tuple[NDArray | list, NDArray | list],
+    data: pd.DataFrame | dict[str, NDArray | list | pd.DataFrame],
+    *y_c: tuple[NDArray | list | pd.DataFrame, NDArray | list | pd.DataFrame],
     colors: dict[str, Color] | str = "nb50",
     size: float | list[float] | str = "auto",
     disp_names: dict[str | int, str] | None = None,
@@ -797,9 +797,14 @@ def categorical_scatter(
     dpi: int = 600,
     x_label: str | None = None,
     y_label: str | None = None,
+    log_scale_x: bool = False,
+    log_scale_y: bool = False,
+    x_lim: tuple[float, float] | None = None,
+    y_lim: tuple[float, float] | None = None,
     title: str | None = None,
+    show_grid: bool | str = False, # can be "major", "minor", or "both"
     include_cat_legend: bool = True,
-    include_size_legend: bool = False,
+    #include_size_legend: bool = False, # not yet implemented
     size_to_area_func: Callable[[NDArray], NDArray] | None = None,
     save_path: (
         str | os.PathLike[str] | None
@@ -810,41 +815,49 @@ def categorical_scatter(
     """
     This function makes a scatter plot where the points each point is colored by
     one of a dicrete set of categories (e.g. clusters, conditions).
+
+    feature ideas:
+     - allow the use of data fram column names as axis labels.
     """
     if len(y_c) == 2: # recieved 3 args -> interpret as x, y, and c.
-        x_raw, y_raw, c_raw = data, y_c[0], y_c[1]
-        
+        x_raw, y_raw = np.array(data), np.array(y_c[0]), 
+        if isinstance(y_c[1], pd.DataFrame):
+            c_raw = y_c[1][y_c[1].columns[0]].to_list() # type: ignore
+        else:
+            c_raw = list(y_c[1])
+
     elif (len(y_c) == 1) | (len(y_c) > 2):
         raise TypeError(
             f"Number of arguments must be 1 or 3 not {len(y_c) + 1}."
         )
-    
-    elif isinstance(data, dict):
-        if ("x" in data) and ("y" in data) and ("c" in data):
-            x_raw, y_raw, c_raw = data['x'], data['y'], data['c']
+
+    else: # (len(y_c) == 0)
+        if isinstance(data, dict):
+            if ("x" in data) and ("y" in data) and ("c" in data):
+                x_raw, y_raw, c_raw = data['x'], data['y'], data['c']
+            else:
+                raise ValueError(
+                    "data of type dict must have keys 'x', 'y', and 'c'."
+                )
+            
+        elif isinstance(data, pd.DataFrame):
+            if (
+                ("x" in data.columns) and 
+                ("y" in data.columns) and 
+                ("c" in data.columns)
+            ):
+                data_dropna = data.dropna(axis="rows") # type: ignore
+                x_raw = data_dropna['x']
+                y_raw = data_dropna['y']
+                c_raw = list(data_dropna['c'])
+            else:
+                raise ValueError(
+                    "data of type DataFrame must have columns 'x', 'y', and 'c'."
+                )
         else:
-            raise ValueError(
-                "data of type dict must have keys 'x', 'y', and 'c'."
+            raise TypeError(
+                f"Try providing dict or DataFrame with columns 'x', 'y', and 'c'."
             )
-        
-    elif isinstance(data, pd.DataFrame):
-        if (
-            ("x" in data.columns) and 
-            ("y" in data.columns) and 
-            ("c" in data.columns)
-        ):
-            data_dropna = data.dropna(axis="rows") # type: ignore
-            x_raw = data_dropna['x']
-            y_raw = data_dropna['y']
-            c_raw = list(data_dropna['c'])
-        else:
-            raise ValueError(
-                "data of type DataFrame must have columns 'x', 'y', and 'c'."
-            )
-    else:
-        raise TypeError(
-            f"Try providing dict or DataFrame with columns 'x', 'y', and 'c'."
-        )
     
     if colors == "tab20":
         colors_dict = tab20_colors  # like Matplotlib
@@ -871,7 +884,7 @@ def categorical_scatter(
             raise ValueError("If s is a list, it must be the same length as c.")
     elif size == "auto":
         uniform_s = 200*np.prod(ax_dims)/(5+len(c_raw))*np.ones(len(c_raw))
-        if isinstance(data, (dict, pd.DataFrame)):
+        if isinstance(data, (dict, pd.DataFrame)) and (len(y_c) == 0):
             if 's' in data:
                 s_raw = np.array(data["s"])
             else:
@@ -948,10 +961,34 @@ def categorical_scatter(
                 f"all values of 'c'. \n disp_names:{disp_names}\n" +
                 f"keys needed: {cat_set}."
             )
+        
+        label_to_disp_name = {}
+        if not y_label is None:
+            if y_label in disp_names:
+                label_to_disp_name[y_label] = disp_names[y_label]
+            else:
+                label_to_disp_name[y_label] = y_label
+        if not x_label is None:
+            if x_label in disp_names:
+                label_to_disp_name[x_label] = disp_names[x_label]
+            else:
+                label_to_disp_name[x_label] = x_label
+        if not title is None:
+            if title in disp_names:
+                label_to_disp_name[title] = disp_names[title]
+            else:
+                label_to_disp_name[title] = title
     else:
         cat_to_disp_name = {
             c:str(c) for c in cat_set
         }
+        label_to_disp_name = {}
+        if not y_label is None:
+            label_to_disp_name[y_label] = y_label
+        if not x_label is None:
+            label_to_disp_name[x_label] = x_label
+        if not title is None:
+            label_to_disp_name[title] = title
 
     if mix_mode == "z_shuffle":
         point_order = np.random.permutation(len(c_raw))
@@ -997,6 +1034,13 @@ def categorical_scatter(
             f"ax_in must be None or matplotlib.axes._axes.Axes, not {ax_in}."
         )
 
+    if not show_grid is False:
+        ax.set_axisbelow(True)
+        if show_grid in {'major', 'minor', 'both'}:
+            ax.grid(True, which=show_grid, zorder=-1, linewidth=.5) #type: ignore
+        else:
+            ax.grid(True, zorder=-1, linewidth=.5)
+
     scatter_kwargs = {"marker", "alpha", "edgecolors"}
 
     if mix_mode in {'z_shuffle', 'ordered'}:
@@ -1033,19 +1077,40 @@ def categorical_scatter(
                 )
         handles, labels = legend_ax.get_legend_handles_labels()
         plt.close(legend_fig)
-        ax.legend(handles, labels, bbox_to_anchor=(1, 0.75), markerscale=2)
+        ax.legend(
+            handles,
+            labels,
+            loc='center left',
+            bbox_to_anchor=(1.1, 0.5),
+            markerscale=2,
+            fancybox=True,
+        )
+
+    if not x_lim is None:
+        ax.set_xlim(x_lim)
+
+    if not y_lim is None:
+        ax.set_ylim(y_lim)
+
+    if log_scale_x:
+        ax.set_xscale("log")
+
+    if log_scale_y:
+        ax.set_yscale("log")
 
     if x_label is not None:
-        ax.set_xlabel(x_label)
+        ax.set_xlabel(label_to_disp_name[x_label])
 
     if y_label is not None:
-        ax.set_ylabel(y_label)
+        ax.set_ylabel(label_to_disp_name[y_label])
 
     if title is not None:
-        ax.set_title(title)
+        ax.set_title(label_to_disp_name[title])
 
     if save_path is not None:
         fig.savefig(save_path, bbox_inches="tight", transparent=True, dpi=dpi)
 
     if show:
         fig.show()
+
+    
