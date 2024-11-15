@@ -5,7 +5,6 @@ This module contains the actual plotting functions for plotomata package.
 try:
     from . import color_sets
     from .color_sets import tab20_colors, nb50_colors, Color, ListColor
-    import os
 except ImportError as ie:
     # normal import style above may not work with reticulate_source.py
     try:
@@ -19,6 +18,8 @@ except ImportError as ie:
         raise ie2 from ie
 except Exception as e:
     raise e
+else:
+    import os
 
 from typing import TypeAlias, Callable
 import warnings
@@ -28,7 +29,8 @@ from numpy.typing import NDArray
 import matplotlib.pyplot as plt
 from matplotlib.axes._axes import Axes
 from matplotlib.figure import Figure
-warnings.filterwarnings("ignore", module = "matplotlib")
+
+warnings.filterwarnings("ignore", module="matplotlib")
 import seaborn as sns
 import pandas as pd
 
@@ -64,7 +66,7 @@ def bar_plot(
     ) = None,  # where to save the plot, which will be a .png file
     y_label: str | None = None,
     title: str | None = None,
-    spine_mode: str = "tight",
+    spine_mode: str = "open", # could also be "tight" or "all"
     show: bool = True,
     ax_in: None | Axes = None,
     **kwargs: dict[str, str | float | None],
@@ -82,13 +84,20 @@ def bar_plot(
     data_df = data  # for future support of other data formats
 
     if isinstance(disp_names, dict):
-        disp_names_dict = disp_names
-    elif disp_names is None:
+        disp_names_dict = {}
+        for key in list(data_df.index) + list(data_df.columns):
+            if key in disp_names:
+                disp_names_dict[key] = disp_names[key]
+            else: # pass through on miss
+                disp_names_dict[key] = key
+    elif (disp_names is None) or (disp_names is False):
         disp_names_dict = {
             key: key for key in list(data_df.index) + list(data_df.columns)
         }
     else:
-        raise TypeError("disp_names should be dict[str: str] type.")
+        raise TypeError(
+            f"disp_names should be of type dict, not {type(disp_names)}."
+        )
 
     if column_order is None:
         col_list = [str(key) for key in data_df.columns]
@@ -107,12 +116,22 @@ def bar_plot(
 
         if "alpha" not in kwargs:
             kwargs["alpha"] = 0.5  # type: ignore
-    elif (colors is None) or (colors == "nb50"):
+    elif (colors is None) or (colors == False) or (colors == "nb50"):
         colors_dict = {
             str(key): nb50_colors[i] for i, key in enumerate(row_list)
         }
     elif isinstance(colors, dict):
-        colors_dict = colors
+        colors_dict = {}
+        default_colors = nb50_colors
+        default_colors_index = 0
+        for key in row_list:
+            if key in colors:
+                colors_dict[key] = tuple(colors[key])
+            else: # pass through on miss
+                colors_dict[key] = default_colors[
+                    default_colors_index % len(default_colors)
+                ]
+                default_colors_index += 1
     else:
         raise ValueError(f"colors={colors} not supported.")
 
@@ -125,13 +144,35 @@ def bar_plot(
             str(key): nb50_colors[i] for i, key in enumerate(col_list)
         }
     elif isinstance(col_colors, dict):
-        col_colors_dict = col_colors
-    elif col_colors is None:
+        col_colors_dict = {}
+        default_colors = tab20_colors
+        default_colors_index = 0
+        for key in col_list:
+            if key in col_colors:
+                col_colors_dict[key] = tuple(col_colors[key])
+            else:
+                col_colors_dict[key] = default_colors[
+                    default_colors_index % len(default_colors)
+                ]
+                default_colors_index += 1
+
+    elif (col_colors is None) or (col_colors == False):
         col_colors_dict = {
-            str(key): (0, 0, 0, 1) for i, key in enumerate(col_list)
+            str(key): (0, 0, 0, 1) for key in col_list # default: all black
         }
     elif col_colors == "from_colors":
-        col_colors_dict = colors_dict
+        if (colors is None) or (colors == False):
+            col_colors_dict = {
+                str(key): (0, 0, 0, 1) for key in col_list # default: all black
+            }
+        else:
+            col_colors_dict = {}
+            for key in col_list:
+                if key in colors_dict:
+                    col_colors_dict[key] = colors_dict[key]
+                else:
+                    col_colors_dict[key] = (0, 0, 0, 1)
+
     else:
         raise ValueError(f"col_colors={col_colors} not supported.")
 
@@ -242,8 +283,12 @@ def bar_plot(
         )
     elif spine_mode == "all":
         pass
+    elif spine_mode == "open":
+        ax.spines[["right", "top"]].set_visible(False)
     else:
-        ax.spines[["right", "top", "left"]].set_visible(False)
+        raise ValueError(
+            f"spine_mode should be 'open', 'tight', or 'all', not {spine_mode}"
+        )
 
     if rotate_labels == "auto":
         disp_label_lengths = np.array(
@@ -264,15 +309,18 @@ def bar_plot(
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(handles[::-1], labels[::-1], bbox_to_anchor=(1, 0.5))
 
-    if y_label is not None:
-        ax.set_ylabel(y_label)
+    if y_label:
+        ax.set_ylabel(y_label) # type: ignore
 
-    if title is not None:
-        ax.set_title(title)
+    if title:
+        ax.set_title(title) # type: ignore
 
-    if save_path is not None:
-        fig.savefig(  # type: ignore
-            save_path, bbox_inches="tight", transparent=True, dpi=dpi
+    if isinstance(save_path, (os.PathLike, str)):
+        fig.savefig(
+            save_path,  # type: ignore
+            bbox_inches="tight", 
+            transparent=True, 
+            dpi=dpi
         )
 
     if show:
@@ -308,7 +356,7 @@ def column_plot(
     vln_grid_size: int = 400,
     shaded_range: _ShadedRangeType = None,
     shaded_range_color: Color | ListColor = (0.8, 0.1, 0, 0.3),
-    spine_mode: str = "tight",
+    spine_mode: str = "open",
     ax_in: None | Axes = None,
     **kwargs: dict[str, str | float | None],
 ) -> None:
@@ -343,7 +391,7 @@ def column_plot(
         if "alpha" not in kwargs:
             kwargs["alpha"] = 0.5  # type: ignore
 
-    elif (colors is None) or (colors == "nb50"):
+    elif (colors is None) or (colors is False) or (colors == "nb50"):
         colors_dict = {
             str(key): nb50_colors[i] for i, key in enumerate(data_dict)
         }
@@ -352,13 +400,31 @@ def column_plot(
             kwargs["alpha"] = 0.5  # type: ignore
 
     elif isinstance(colors, dict):
-        colors_dict = colors
+        colors_dict = {}
+        default_colors = nb50_colors
+        default_colors_index = 0
+        for key in data_dict:
+            if key in colors:
+                colors_dict[key] = tuple(colors[key])
+            else: # pass through on miss
+                colors_dict[key] = default_colors[
+                    default_colors_index % len(default_colors)
+                ]
+                default_colors_index += 1
 
     else:
         raise ValueError(f"recieved bad kwarg colors={colors}")
 
-    if disp_names is None:
-        disp_names = {str(key): str(key) for key in data_dict}
+    if (disp_names is None) or (disp_names is False):
+        disp_names_dict = {str(key): str(key) for key in data_dict}
+
+    elif isinstance(disp_names, dict):
+        disp_names_dict = {}
+        for key in data_dict:
+            if key in disp_names:
+                disp_names_dict[key] = disp_names[key]
+            else: # pass through on miss
+                disp_names_dict[key] = key
 
     if (v_range == "auto") or (q_range == "auto"):
         n_bins: int = (
@@ -398,8 +464,8 @@ def column_plot(
 
         v_range = None
 
-    if v_range is None:  # v_range will override q_range if both are provided
-        if q_range is None:
+    if (v_range is None) or (v_range is False):  # v_range will override q_range if both are provided
+        if (q_range is None) or (q_range is False):
             q_range = (0.0, 1.0)
 
         v_range = (
@@ -493,11 +559,11 @@ def column_plot(
     # Make a version of the input data that has the final display names as keys
     #   and also clips data, if necessary.
     renamed_data_dict = {
-        disp_names[key]: np.clip(data_dict[key], clip_min, clip_max)
+        disp_names_dict[key]: np.clip(data_dict[key], clip_min, clip_max)
         for key in data_dict
     }
     clipped_data = {
-        disp_names[key]: np.clip(
+        disp_names_dict[key]: np.clip(
             data_dict[key][(data_dict[key] < y_min) | (data_dict[key] > y_max)],
             v_range[0],
             v_range[1],
@@ -528,7 +594,7 @@ def column_plot(
                 ax=ax,
                 size=float(dot_size),
                 palette={
-                    disp_names[key]: colors_dict[key]  # type: ignore
+                    disp_names_dict[key]: colors_dict[key]  # type: ignore
                     for key in data_dict
                 },
                 jitter=0.45,
@@ -560,7 +626,7 @@ def column_plot(
                 size=float(dot_size),
                 zorder=2,
                 palette={
-                    disp_names[key]: colors_dict[key]  # type: ignore
+                    disp_names_dict[key]: colors_dict[key]  # type: ignore
                     for key in data_dict
                 },
             )
@@ -575,7 +641,7 @@ def column_plot(
         sns.swarmplot(
             clipped_data, ax=ax, size=float(dot_size), color="red", zorder=5
         )  # clipped points
-    elif point_plot_type in {None, "none", "None"}:
+    elif point_plot_type in {None, False}:
         pass
     else:
         raise ValueError(
@@ -594,8 +660,8 @@ def column_plot(
         bw_adjust=vln_bw_adjust,
         gridsize=vln_grid_size,
         palette={
-            disp_names[key]: colors_dict[key]
-            for key in data_dict  # type: ignore
+            disp_names_dict[key]: colors_dict[key]  # type: ignore
+            for key in data_dict 
         },
         **{
             kwarg_key: kwargs[kwarg_key]
@@ -608,7 +674,7 @@ def column_plot(
 
     if rotate_labels == "auto":
         disp_label_lengths = np.array(
-            [len(disp_names[key]) for key in data_dict]
+            [len(disp_names_dict[key]) for key in data_dict]
         )
         rotate_labels = bool(
             np.max(disp_label_lengths[:-1] + disp_label_lengths[1:])
@@ -638,8 +704,12 @@ def column_plot(
         )
     elif spine_mode == "all":
         pass
+    elif spine_mode == "open":
+        ax.spines[["right", "top"]].set_visible(False)
     else:
-        ax.spines[["right", "top", "left"]].set_visible(False)
+        raise ValueError(
+            f"spine_mode should be 'open', 'tight', or 'all', not {spine_mode}"
+        )
 
     if shaded_range is not None:
         if type(shaded_range) in {dict, tuple}:
@@ -692,8 +762,8 @@ def column_plot(
                     )
                 else:
                     raise TypeError(
-                        "All shaded range must be tuple or dict, " +
-                        "not {shaded_range}"
+                        "All shaded range must be tuple or dict, "
+                        + "not {shaded_range}"
                     )
 
     if inner in {
@@ -772,13 +842,13 @@ def column_plot(
                 zorder=4,
             )
 
-    if y_label is not None:
+    if isinstance(y_label, str):
         ax.set_ylabel(y_label)
 
-    if title is not None:
+    if isinstance(title, str):
         ax.set_title(title)
 
-    if save_path is not None:
+    if isinstance(save_path, (os.PathLike, str)):
         fig.savefig(save_path, bbox_inches="tight", transparent=True, dpi=dpi)
 
     if show:
@@ -802,9 +872,10 @@ def categorical_scatter(
     x_lim: tuple[float, float] | None = None,
     y_lim: tuple[float, float] | None = None,
     title: str | None = None,
-    show_grid: bool | str = False, # can be "major", "minor", or "both"
+    title_color: Color | str = "black",
+    show_grid: bool | str = False,  # can be "major", "minor", or "both"
     include_cat_legend: bool = True,
-    #include_size_legend: bool = False, # not yet implemented
+    # include_size_legend: bool = False, # not yet implemented
     size_to_area_func: Callable[[NDArray], NDArray] | None = None,
     save_path: (
         str | os.PathLike[str] | None
@@ -819,10 +890,13 @@ def categorical_scatter(
     feature ideas:
      - allow the use of data fram column names as axis labels.
     """
-    if len(y_c) == 2: # recieved 3 args -> interpret as x, y, and c.
-        x_raw, y_raw = np.array(data), np.array(y_c[0]), 
+    if len(y_c) == 2:  # recieved 3 args -> interpret as x, y, and c.
+        x_raw, y_raw = (
+            np.array(data),
+            np.array(y_c[0]),
+        )
         if isinstance(y_c[1], pd.DataFrame):
-            c_raw = y_c[1][y_c[1].columns[0]].to_list() # type: ignore
+            c_raw = y_c[1][y_c[1].columns[0]].to_list()  # type: ignore
         else:
             c_raw = list(y_c[1])
 
@@ -831,61 +905,51 @@ def categorical_scatter(
             f"Number of arguments must be 1 or 3 not {len(y_c) + 1}."
         )
 
-    else: # (len(y_c) == 0)
+    else:  # (len(y_c) == 0)
         if isinstance(data, dict):
             if ("x" in data) and ("y" in data) and ("c" in data):
-                x_raw, y_raw, c_raw = data['x'], data['y'], data['c']
+                x_raw, y_raw, c_raw = data["x"], data["y"], data["c"]
             else:
                 raise ValueError(
                     "data of type dict must have keys 'x', 'y', and 'c'."
                 )
-            
+
         elif isinstance(data, pd.DataFrame):
             if (
-                ("x" in data.columns) and 
-                ("y" in data.columns) and 
-                ("c" in data.columns)
+                ("x" in data.columns)
+                and ("y" in data.columns)
+                and ("c" in data.columns)
             ):
-                data_dropna = data.dropna(axis="rows") # type: ignore
-                x_raw = data_dropna['x']
-                y_raw = data_dropna['y']
-                c_raw = list(data_dropna['c'])
+                data_dropna = data.dropna(axis="rows")  # type: ignore
+                x_raw = data_dropna["x"]
+                y_raw = data_dropna["y"]
+                c_raw = list(data_dropna["c"])
             else:
                 raise ValueError(
-                    "data of type DataFrame must have columns 'x', 'y', and 'c'."
+                    "data of type DataFrame must have columns" +
+                    " 'x', 'y', and 'c'."
                 )
         else:
             raise TypeError(
-                f"Try providing dict or DataFrame with columns 'x', 'y', and 'c'."
+                f"Try providing dict or DataFrame with columns" +
+                " 'x', 'y', and 'c'."
             )
-    
-    if colors == "tab20":
-        colors_dict = tab20_colors  # like Matplotlib
-        n_colors = 20
 
-    elif colors == "nb50":
-        colors_dict = nb50_colors
-        n_colors = 50
-
-    elif isinstance(colors, dict):
-        colors_dict = colors
-        n_colors = len(colors_dict)
-
-    else:
-        raise TypeError(f"bad kwarg colors = {colors}")
 
     # get s_raw, a list of the sizes of each point on the plot.
     if isinstance(size, float):
-        s_raw = size*np.ones(len(c_raw))
+        s_raw = size * np.ones(len(c_raw))
     elif isinstance(size, list):
-        if (len(size) == len(c_raw)):
+        if len(size) == len(c_raw):
             s_raw = np.array(size)
         else:
             raise ValueError("If s is a list, it must be the same length as c.")
     elif size == "auto":
-        uniform_s = 200*np.prod(ax_dims)/(5+len(c_raw))*np.ones(len(c_raw))
+        uniform_s = (
+            200 * np.prod(ax_dims) / (5 + len(c_raw)) * np.ones(len(c_raw))
+        )
         if isinstance(data, (dict, pd.DataFrame)) and (len(y_c) == 0):
-            if 's' in data:
+            if "s" in data:
                 s_raw = np.array(data["s"])
             else:
                 s_raw = uniform_s
@@ -895,17 +959,17 @@ def categorical_scatter(
         raise TypeError(
             f"bad kwarg size = {size}; must be list, float, or 'auto'."
         )
-    
+
     if size_to_area_func is None:
-        size_func = lambda x : x
+        size_func = lambda x: x
     elif callable(size_to_area_func):
         size_func = size_to_area_func
     else:
         raise TypeError(
-            "size_to_area_func should be callable or None, "+
-            "Not {size_to_area_func}."
+            "size_to_area_func should be callable or None, "
+            + "Not {size_to_area_func}."
         )
-    
+
     if not len(x_raw) == len(y_raw) == len(c_raw) == len(s_raw):
         raise ValueError(
             f"incompatible lengths:\n"
@@ -917,51 +981,78 @@ def categorical_scatter(
 
     cat_set = set(c_raw)
 
+    if colors == "tab20":
+        colors_dict = tab20_colors  # like Matplotlib
+        n_colors = 20
+
+    elif (colors == "nb50") or (colors is False) or (colors is None):
+        colors_dict = nb50_colors
+        n_colors = 50
+
+    elif isinstance(colors, dict):
+        colors_dict = {}
+        default_colors = nb50_colors
+        default_colors_index = 0
+        for key in cat_set:
+            if key in colors:
+                colors_dict[key] = tuple(colors[key])
+            else: # pass through on miss
+                colors_dict[key] = default_colors[
+                    default_colors_index % len(default_colors)
+                ]
+                default_colors_index += 1
+        n_colors = len(colors_dict)
+
+    else:
+        raise TypeError(f"bad kwarg colors = {colors}")
+
     if not all([cat in colors_dict for cat in c_raw]):
         # more work will be requred to map c to colors
         if all(isinstance(key, int) for key in colors_dict.keys()):
             try:
                 # if all elements of c can be converted to integers, this will
                 # run without an error:
-                _ = {int(cat) for cat in c_raw} # type: ignore
+                _ = {int(cat) for cat in c_raw}  # type: ignore
 
                 cat_to_color_key = {
-                    cat:int(cat)%n_colors # type: ignore
+                    cat: int(cat) % n_colors  # type: ignore
                     for cat in set(c_raw)
                 }
             except ValueError:
                 # In this case, categories will be arbitrarily mapped to colors.
                 # This could lead to inconsistent color coding between plots.
                 cat_to_color_key = {
-                    cat:i%n_colors for i, cat in enumerate(cat_set)
+                    cat: i % n_colors for i, cat in enumerate(cat_set)
                 }
                 if not all(
                     [(key in colors_dict) for key in cat_to_color_key.values()]
                 ):
                     raise ValueError(
-                    "Color mapping error. kwarg colors =" +
-                    f" {colors} may have be a dict with " +
-                    "non-sequential integer keys that do not exactly match" +
-                    f"the values of 'c', {cat_set}."
-                 )
+                        "Color mapping error. kwarg colors ="
+                        + f" {colors} may have be a dict with "
+                        + "non-sequential integer keys that do not exactly match"
+                        + f"the values of 'c', {cat_set}."
+                    )
             except Exception as e:
                 raise ValueError("Unexpected error in color mapping.") from e
 
     else:
-        cat_to_color_key = {cat:cat for cat in colors_dict}
+        cat_to_color_key = {cat: cat for cat in colors_dict}
 
-    if not disp_names is None:
-        if all([cat in disp_names for cat in cat_set]):
-            cat_to_disp_name = {
-                c:disp_names[c] for c in cat_set # type: ignore
-            }
+    if disp_names:
+        if isinstance(disp_names, dict):
+            cat_to_disp_name = {}
+            for key in cat_set:
+                if key in disp_names:
+                    cat_to_disp_name[key] = disp_names[key]
+                else: # pass through on miss
+                    cat_to_disp_name[key] = key 
         else:
-            raise ValueError(
-                "If provided, disp names must be a dict with keys matching " +
-                f"all values of 'c'. \n disp_names:{disp_names}\n" +
-                f"keys needed: {cat_set}."
+            raise TypeError(
+                "If provided, disp names should be of type dict, " +
+                f"not {type(disp_names)}"
             )
-        
+
         label_to_disp_name = {}
         if not y_label is None:
             if y_label in disp_names:
@@ -979,9 +1070,7 @@ def categorical_scatter(
             else:
                 label_to_disp_name[title] = title
     else:
-        cat_to_disp_name = {
-            c:str(c) for c in cat_set
-        }
+        cat_to_disp_name = {c: str(c) for c in cat_set}
         label_to_disp_name = {}
         if not y_label is None:
             label_to_disp_name[y_label] = y_label
@@ -1003,7 +1092,7 @@ def categorical_scatter(
     x_array = np.array(x_raw)[point_order]
     y_array = np.array(y_raw)[point_order]
     color_list = [
-        colors_dict[cat_to_color_key[c_raw[i]]] # type: ignore
+        colors_dict[cat_to_color_key[c_raw[i]]]  # type: ignore
         for i in point_order
     ]
     s_array = np.array(s_raw)[point_order]
@@ -1036,60 +1125,69 @@ def categorical_scatter(
 
     if not show_grid is False:
         ax.set_axisbelow(True)
-        if show_grid in {'major', 'minor', 'both'}:
-            ax.grid(True, which=show_grid, zorder=-1, linewidth=.5) #type: ignore
+        if show_grid in {"major", "minor", "both"}:
+            ax.grid(
+                True, 
+                which=show_grid, # type: ignore
+                zorder=-1, 
+                linewidth=0.5
+            )
         else:
-            ax.grid(True, zorder=-1, linewidth=.5)
+            ax.grid(True, zorder=-1, linewidth=0.5)
 
     scatter_kwargs = {"marker", "alpha", "edgecolors"}
 
-    if mix_mode in {'z_shuffle', 'ordered'}:
+    if mix_mode in {"z_shuffle", "ordered"}:
         ax.scatter(
-            x_array, y_array, 
+            x_array,
+            y_array,
             c=color_list,
             s=size_func(s_array),
             linewidths=0,
-            **{key:val # type: ignore
-              for key, val in kwargs.items() if key in scatter_kwargs
-            }
+            **{
+                key: val  # type: ignore
+                for key, val in kwargs.items()
+                if key in scatter_kwargs
+            },
         )
-    else: # If a mode was added to the previous mix_mode check but not here.
+    else:  # If a mode was added to the previous mix_mode check but not here.
         raise ValueError(
             f"mix_mode {mix_mode} not recognized. Try 'z_shuffle' or 'ordered'"
         )
-    
+
     if include_cat_legend:
         # create figure (not to ever be shown) to copy desired legend from
-        legend_fig = plt.figure(figsize=(.5, .5))
+        legend_fig = plt.figure(figsize=(0.5, 0.5))
         legend_ax = legend_fig.add_axes((0, 0, 1, 1))
-        for cat, key in cat_to_color_key.items(): # type: ignore
+        for cat, key in cat_to_color_key.items():  # type: ignore
             if (cat in cat_to_disp_name) and (key in colors_dict):
                 legend_ax.scatter(
-                    0, 
-                    0, 
-                    c=colors_dict[key], # type: ignore
+                    0,
+                    0,
+                    c=colors_dict[key],  # type: ignore
                     label=cat_to_disp_name[cat],
                     linewidths=0,
-                    **{key:val # type: ignore
-                    for key, val in kwargs.items() 
-                    if key in scatter_kwargs^{"alpha"}
-                    }
+                    **{
+                        key: val  # type: ignore
+                        for key, val in kwargs.items()
+                        if key in scatter_kwargs ^ {"alpha"}
+                    },
                 )
         handles, labels = legend_ax.get_legend_handles_labels()
         plt.close(legend_fig)
         ax.legend(
             handles,
             labels,
-            loc='center left',
+            loc="center left",
             bbox_to_anchor=(1.1, 0.5),
             markerscale=2,
             fancybox=True,
         )
 
-    if not x_lim is None:
+    if x_lim:
         ax.set_xlim(x_lim)
 
-    if not y_lim is None:
+    if y_lim:
         ax.set_ylim(y_lim)
 
     if log_scale_x:
@@ -1098,19 +1196,17 @@ def categorical_scatter(
     if log_scale_y:
         ax.set_yscale("log")
 
-    if x_label is not None:
+    if x_label:
         ax.set_xlabel(label_to_disp_name[x_label])
 
-    if y_label is not None:
+    if y_label:
         ax.set_ylabel(label_to_disp_name[y_label])
 
-    if title is not None:
-        ax.set_title(label_to_disp_name[title])
+    if title:
+        ax.set_title(label_to_disp_name[title], color=title_color)
 
-    if save_path is not None:
+    if isinstance(save_path, (str, os.PathLike)):
         fig.savefig(save_path, bbox_inches="tight", transparent=True, dpi=dpi)
 
     if show:
         fig.show()
-
-    
