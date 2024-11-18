@@ -5,7 +5,6 @@ This module defines standard sets of colors and types used to store colors.
 import os
 from typing import TypeAlias
 import numpy as np
-from numpy.typing import NDArray
 import matplotlib.pyplot as plt
 
 
