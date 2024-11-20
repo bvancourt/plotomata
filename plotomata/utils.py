@@ -118,6 +118,7 @@ def standardize_arrayable(
 
 def label_axes_etc(
     ax: Axes,
+    ax_dims: tuple[float, float] | None = None,
     x_lim: tuple[float, float] | None = None,
     y_lim: tuple[float, float] | None = None,
     log_scale_x: bool = False,
@@ -129,6 +130,10 @@ def label_axes_etc(
     title_color: Color | str = (0, 0, 0, 1),
     x_label_color: Color | str = (0, 0, 0, 1),
     y_label_color: Color | str = (0, 0, 0, 1),
+    hide_spines: bool | list[str] = False,
+    aspect_ratio: float | None = None,  # "equal", "auto", or float(dy/dx)
+    axis_off: bool = False,
+    **miss_kwargs,
 ) -> Axes:
     """
     Setting the axis labels, limits, title, etc. is necessary for most plots, so
@@ -157,6 +162,66 @@ def label_axes_etc(
 
     if title:
         ax.set_title(disp_names[title], color=title_color)
+
+    if hide_spines:
+        if isinstance(hide_spines, list):
+            for spine in hide_spines:
+                ax.spines[spine].set_visible(False)
+        else:
+            ax.spines[["left", "right", "top", "bottom"]].set_visible(False)
+
+    if axis_off:
+        ax.set_axis_off()
+
+    if aspect_ratio:
+        if ax_dims is None:
+            raise NotImplementedError(
+                "Please do not provide aspect_ratio without providing ax_dims."
+            )
+        if x_lim and y_lim:
+            raise ValueError(
+                "Attempted to specify x_lim, y_lim, and aspect for existing "
+                + "axes, which is not allowed, since label_axes_etc() is not "
+                + "allowed to change the axes 'position'."
+            )
+        elif isinstance(aspect_ratio, (float, int)):
+            target_ar = float(aspect_ratio)
+        elif aspect_ratio == "equal":
+            target_ar = 1
+        elif aspect_ratio == "auto":
+            pass
+        else:
+            raise ValueError(
+                f"'aspect_ratio' should be a float or 'equal', not "
+                + "{aspect_ratio}."
+            )
+
+        ax_width, ax_height = ax_dims
+        current_x_min, current_x_max = ax.get_xlim()
+        current_y_min, current_y_max = ax.get_ylim()
+
+        current_y_per_inch = (current_y_max - current_y_min) / ax_height
+        current_x_per_inch = (current_x_max - current_x_min) / ax_width
+
+        current_ar = current_y_per_inch / current_x_per_inch
+
+        if y_lim or (current_ar > target_ar):
+            # increase diff(xlim) to reduce aspect ratio
+            x_center = (current_x_min + current_x_max) / 2
+            target_x_per_inch = current_y_per_inch / target_ar
+            ax.set_xlim(
+                x_center - target_x_per_inch * ax_width / 2,
+                x_center + target_x_per_inch * ax_width / 2,
+            )
+
+        else:
+            # increase diff(ylim) to increase aspect ratio
+            y_center = (current_y_min + current_y_max) / 2
+            target_y_per_inch = current_x_per_inch * target_ar
+            ax.set_ylim(
+                y_center - target_y_per_inch * ax_width / 2,
+                y_center + target_y_per_inch * ax_width / 2,
+            )
 
     return ax
 
@@ -330,3 +395,32 @@ def surrogate_size_legend_info_automatic(
         [actual_labels[i] for i in i_sort],
         **scatter_kwargs,
     )
+
+
+def labels_from_data(
+    *args,
+    x_label: str | None = None,
+    y_label: str | None = None,
+    color_data_label: str | None = None,
+    size_legend_title: str | None = None,
+):
+    labels_dict = {
+        "x_label": x_label,
+        "y_label": y_label,
+        "color_data_label": color_data_label,
+        "size_legend_title": size_legend_title,
+    }
+
+    if isinstance(args[0], pd.DataFrame):
+        if (len(args[0].columns) >= 3) and not all(
+            ("x" in args[0], "y" in args[0], "c" in args[0])
+        ):
+            for i in range(3):
+                labels_dict[list(labels_dict)[i]] = args[0].columns[i]
+
+    for i, label_key in enumerate(labels_dict):
+        if len(args) > i:
+            if isinstance(args[i], Series):
+                labels_dict[label_key] = args[i].name
+
+    return labels_dict
