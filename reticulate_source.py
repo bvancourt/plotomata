@@ -4,7 +4,7 @@ reloading the package in R using
 
 reticulate::source_python("/path/to/plotomata/reticulate_source.py")
 
-This is a development/debugging feature only needed to repeatedly modify 
+This is a development/debugging feature only needed to repeatedly modify
 plotomata code and test it in R.
 """
 
@@ -18,9 +18,11 @@ sys.path.insert(
 
 import plotters
 import color_sets
+import utils
 
 importlib.reload(plotters)
 importlib.reload(color_sets)
+importlib.reload(utils)
 
 from plotters import *
 from color_sets import *
