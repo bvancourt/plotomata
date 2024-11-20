@@ -18,6 +18,7 @@ try:
         surrogate_size_legend_info_automatic,
         standardize_arrayable,
         invert_dictionary,
+        labels_from_data,
     )
 except ImportError as ie:
     # normal import style above may not work with reticulate_source.py
@@ -39,6 +40,7 @@ except ImportError as ie:
             surrogate_size_legend_info_automatic,
             standardize_arrayable,
             invert_dictionary,
+            labels_from_data,
         )
     except ImportError as ie2:
         raise ie2 from ie
@@ -48,18 +50,20 @@ else:
     import os
 
 from typing import TypeAlias, Callable
+import warnings
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.axes._axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.colors import Colormap, Normalize, LogNorm
-from mpl_toolkits.axes_grid1 import make_axes_locatable
+from mpl_toolkits.axes_grid1 import make_axes_locatable, Divider, Size
 import seaborn as sns
 import pandas as pd
 from pandas.core.series import Series
 from numpy.typing import NDArray
 
+import warnings
 
 _ShadedRangeType: TypeAlias = (
     None
@@ -82,7 +86,7 @@ def bar_plot(
     item_width: float = 0.5,
     margin: float = 0.1,
     ax_height: float = 2.5,
-    dpi: int = 600,
+    dpi: int = 300,
     edge_color: Color | ListColor = (0, 0, 0, 1),
     edge_width: float = 0.5,
     rotate_labels: bool | str = "auto",
@@ -136,10 +140,8 @@ def bar_plot(
     if colors == "tab20":
         colors_dict = {
             str(key): tab20_colors[i] for i, key in enumerate(row_list)
-        }  # default is like Matplotlib
+        }  # these would be the deault colors in Matplotlib
 
-        if "alpha" not in kwargs:
-            kwargs["alpha"] = 0.5  # type: ignore
     elif (colors is None) or (colors == False) or (colors == "nb50"):
         colors_dict = {
             str(key): nb50_colors[i] for i, key in enumerate(row_list)
@@ -332,7 +334,7 @@ def bar_plot(
 
     # This reverses the order of the legend:
     handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles[::-1], labels[::-1], bbox_to_anchor=(1, 0.5))
+    ax.legend(handles[::-1], labels[::-1], bbox_to_anchor=(1, 1))
 
     ax = label_axes_etc(
         ax,
@@ -353,9 +355,11 @@ def bar_plot(
         return ax
 
     if show:
-        fig.show()  # type: ignore
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            fig.show()
 
-    elif ax_in is None:
+    elif not ax_in:
         plt.close(fig)
 
 
@@ -900,18 +904,21 @@ def column_plot(
         return ax
 
     if show:
-        fig.show()
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            fig.show()
 
 
 def scatter_plot(
     data: pd.DataFrame | dict[str, Arrayable] | Arrayable,  # type: ignore
     *y_c: tuple[Arrayable, Arrayable],  # type: ignore
     mode: str = "categorical",  # Could be "color_map"
+    pull_labels_from_data: bool = False,
     color_palette: dict[str, Color] | str = "nb50",
     size: float | Arrayable | str = "auto",  # type: ignore
     disp_names: dict[str | int, str] | None = None,
     mix_mode: str = "z_shuffle",  # 'z_shuffle', 'ordered'
-    ax_dims: tuple[float, float] = (2.5, 2.5),
+    axes_dimensions: tuple[float, float] | None = None,
     ax_in: Axes | None = None,
     dpi: int = 600,
     x_label: str | None = None,
@@ -931,7 +938,11 @@ def scatter_plot(
     cmap: str | Colormap = "YlOrBr",
     cmap_norm: Callable | None = None,
     colorbar_label: str | None = None,
+    show_colorbar: bool = True,
     autoscale_size: bool = True,
+    hide_spines: bool | list[str] = False,
+    aspect_ratio: float | None = None,
+    axis_off: bool = False,
     save_path: (
         str | os.PathLike[str] | None
     ) = None,  # where to save the plot, which will be a .png file
@@ -946,6 +957,27 @@ def scatter_plot(
     feature ideas:
      - allow the use of data frame column names as axis labels.
     """
+
+    if not axes_dimensions:
+        if x_lim and y_lim and aspect_ratio:
+            if isinstance(aspect_ratio, float):
+                ax_dims = (
+                    2.5 * (y_lim[1] - y_lim[0]) / aspect_ratio,
+                    2.5,
+                )  # check
+            elif aspect_ratio == "equal":
+                ax_dims = (2.5 * (y_lim[1] - y_lim[0]), 2.5)  # check
+            else:
+                ax_dims = (2.5, 2.5)
+        else:
+            ax_dims = (2.5, 2.5)
+    elif x_lim and y_lim and aspect_ratio:
+        raise TypeError(
+            "Specifying ax_dims, x_lim, y_lim, and aspect_ratio overdefines ax."
+        )
+    else:
+        ax_dims = axes_dimensions
+
     if not mode in {"categorical", "color_map"}:
         raise ValueError(
             f"mode must be 'categorical' or 'color_map', not {mode}.\n"
@@ -990,45 +1022,56 @@ def scatter_plot(
 
     else:  # if (len(y_c) == 0), data arg must contain x, y, and possibly c.
         if isinstance(data, dict):
-            if ("x" in data) and ("y" in data):
+            if ("x" in data) and ("y" in data) and ("c" in data):
                 x_raw = np.array(standardize_arrayable(data["x"]))
                 y_raw = np.array(standardize_arrayable(data["y"]))
                 if mode == "categorical":
-                    if "c" in data:
-                        c_raw = list(
-                            standardize_arrayable(data["c"], dtype="list")
-                        )
-                    else:
-                        raise TypeError(
-                            "data of type dict must have keys 'x', 'y', and, "
-                            + "for mode='categorical', 'c'.\n"
-                        )
+                    c_raw = list(standardize_arrayable(data["c"], dtype="list"))
                 elif mode == "color_map":
-                    if "c" in data:
-                        c_raw = np.array(
-                            standardize_arrayable(data["c"], dtype=np.float64)
+                    c_raw = np.array(
+                        standardize_arrayable(data["c"], dtype=np.float64)
+                    )
+            elif len(data) > 2:
+                x_raw = np.array(standardize_arrayable(data[list(data)[0]]))
+                y_raw = np.array(standardize_arrayable(data[list(data)[1]]))
+                if mode == "categorical":
+                    c_raw = list(
+                        standardize_arrayable(data[list(data)[2]], dtype="list")
+                    )
+                elif mode == "color_map":
+                    c_raw = np.array(
+                        standardize_arrayable(
+                            data[list(data)[2]], dtype=np.float64
                         )
+                    )
             else:
                 raise TypeError(
                     "data of type dict must have keys 'x', and 'y'.\n"
                 )
 
         elif isinstance(data, pd.DataFrame):
-            if ("x" in data.columns) and ("y" in data.columns):
-                data_dropna = data.dropna(axis="rows")  # type: ignore
+            data_dropna = data.dropna(axis="rows")  # type: ignore
+            if (
+                ("x" in data.columns)
+                and ("y" in data.columns)
+                and ("c" in data.columns)
+            ):
                 x_raw = data_dropna["x"]
                 y_raw = data_dropna["y"]
                 if mode == "categorical":
-                    if "c" in data.columns:
-                        c_raw = list(data_dropna["c"])
-                    else:
-                        raise TypeError(
-                            "For mode='categorical' and one arg provided, data"
-                            + " should be a DataFrame with a col named 'c'.\n"
-                        )
+                    c_raw = list(data_dropna["c"])
                 elif mode == "color_map":
                     c_raw = standardize_arrayable(
                         data_dropna["c"], dtype=np.float64
+                    )
+            elif len(data.columns) >= 3:
+                x_raw = data_dropna[data.columns[0]]
+                y_raw = data_dropna[data.columns[1]]
+                if mode == "categorical":
+                    c_raw = list(data_dropna[data.columns[2]])
+                elif mode == "color_map":
+                    c_raw = standardize_arrayable(
+                        data_dropna[data.columns[2]], dtype=np.float64
                     )
             else:
                 raise ValueError(
@@ -1226,7 +1269,9 @@ def scatter_plot(
 
     s_array = size_func(s_raw[point_order])
 
-    if autoscale_size:
+    if autoscale_size and isinstance(
+        size, (np.ndarray, list, pd.DataFrame, Series)
+    ):
         s_scale_factor = np.minimum(
             100 / np.max(s_array), 30 / np.median(s_array)
         )
@@ -1244,6 +1289,7 @@ def scatter_plot(
         1 - 0.5 / pad_factor,
     )
     fig_size = (ax_dims[0] * pad_factor, ax_dims[1] * pad_factor)
+
     if ax_in is None:
         fig = plt.figure(figsize=fig_size, dpi=dpi)
         ax = fig.add_axes(ax_position)
@@ -1270,6 +1316,38 @@ def scatter_plot(
         else:
             ax.grid(True, zorder=-1, linewidth=0.5)
 
+    if pull_labels_from_data:
+        label_kwargs = labels_from_data(
+            data,
+            *y_c,
+            (
+                size
+                if len(y_c) == 2  # (this is to make size sure size is args[3])
+                else (
+                    (None, size)
+                    if len(y_c) == 1
+                    else (None, None, size) if len(y_c) == 0 else None
+                )
+            ),
+            x_label=x_label,
+            y_label=y_label,
+            color_data_label=(
+                color_legend_title if mode == "categorical" else colorbar_label
+            ),
+            size_legend_title=size_legend_title,
+        )
+    else:
+        label_kwargs = {
+            "x_label": x_label,
+            "y_label": y_label,
+            "color_data_label": (
+                color_legend_title
+                if (mode == "categorical")
+                else colorbar_label
+            ),
+            "size_legend_title": size_legend_title,
+        }
+
     scatter_kwargs = {"marker", "alpha", "edgecolors"}
 
     if mix_mode in {"z_shuffle", "ordered"}:
@@ -1291,7 +1369,7 @@ def scatter_plot(
                 norm = cmap_norm
             elif cmap_norm == "log":
                 norm = LogNorm()
-            elif isinstance(cmap_norm, tuple):
+            elif isinstance(cmap_norm, (tuple, list)):
                 if len(cmap_norm) == 3:
                     if cmap_norm[2] == "log":
                         norm = LogNorm(vmin=cmap_norm[0], vmax=cmap_norm[1])
@@ -1321,18 +1399,47 @@ def scatter_plot(
                     if key in scatter_kwargs
                 },
             )
-            cax = make_axes_locatable(ax).append_axes(
-                "right", size="5%", pad=0.1
-            )
-            if colorbar_label:
-                fig.colorbar(scat, cax=cax, label=colorbar_label)
-            else:
-                fig.colorbar(scat, cax=cax)
-            ax.set_position(ax_position)
+
+            if show_colorbar:
+                # cax = make_axes_locatable(ax).append_axes(
+                #    "right", size="5%", pad=0.1
+                # )
+                cbar_ax_gap_width = 0.04
+                cax = fig.add_axes(
+                    (
+                        ax_position[0] + ax_position[2] + cbar_ax_gap_width,
+                        ax_position[1],
+                        cbar_ax_gap_width,
+                        ax_position[3],
+                    )
+                )
+
+                fig.colorbar(
+                    scat, cax=cax, label=label_kwargs["color_data_label"]
+                )
+
+            ax.reset_position()
+
     else:  # If a mode was added to the previous mix_mode check but not here.
         raise ValueError(
             f"mix_mode {mix_mode} not recognized. Try 'z_shuffle' or 'ordered'"
         )
+
+    ax = label_axes_etc(
+        ax,
+        ax_dims=ax_dims,
+        x_lim=x_lim,
+        y_lim=y_lim,
+        log_scale_x=log_scale_x,
+        log_scale_y=log_scale_y,
+        disp_names=PassthroughDict(label_to_disp_name),
+        title_color=title_color,
+        aspect_ratio=aspect_ratio,
+        hide_spines=hide_spines,
+        axis_off=axis_off,
+        title=title,
+        **label_kwargs,
+    )
 
     if include_cat_legend and (mode == "categorical"):
         key_to_cat = invert_dictionary(cat_to_color_key)  # type: ignore
@@ -1352,19 +1459,21 @@ def scatter_plot(
         )
 
         color_ghost_ax = ax.twinx()
-        color_legend = color_ghost_ax.legend(
+        color_ghost_ax.legend(
             handles,
             labels,
             loc="center left",
-            bbox_to_anchor=(1.1, 0.5),
+            bbox_to_anchor=(1 + 0.2 / ax_dims[0], 0.5),
             markerscale=30 / (20 + len(handles)),
             fancybox=True,
-            title=color_legend_title,
+            title=label_kwargs["color_data_label"],
             fontsize=200 / (20 + len(labels)),
-            title_fontsize=250 / (20 + len(labels)),
+            # title_fontsize=250 / (20 + len(labels)), # good idea?
         )
         color_ghost_ax.get_yaxis().set_visible(False)
-        color_legend.get_frame().set_linewidth(0.75)
+        color_ghost_ax.spines[["left", "right", "top", "bottom"]].set_visible(
+            False
+        )
 
     if include_size_legend and isinstance(
         size, (np.ndarray, list, pd.DataFrame, Series)
@@ -1383,32 +1492,21 @@ def scatter_plot(
             },
         )
         size_ghost_ax = ax.twinx()
-        size_legend = size_ghost_ax.legend(
+        size_ghost_ax.legend(
             handles,
             labels,
-            loc="lower center",
-            bbox_to_anchor=(0.5, 1.15),
+            loc="center right",
+            bbox_to_anchor=(-1 / ax_dims[0], 0.5),
             markerscale=1,
             fancybox=True,
-            title=size_legend_title,
+            title=label_kwargs["size_legend_title"],
             fontsize=160 / (20 + len(labels)),
-            title_fontsize=200 / (20 + len(labels)),
+            # title_fontsize=200 / (20 + len(labels)),
         )
         size_ghost_ax.get_yaxis().set_visible(False)
-        size_legend.get_frame().set_linewidth(0.75)
-
-    ax = label_axes_etc(
-        ax,
-        x_lim=x_lim,
-        y_lim=y_lim,
-        log_scale_x=log_scale_x,
-        log_scale_y=log_scale_y,
-        title=title,
-        x_label=x_label,
-        y_label=y_label,
-        disp_names=label_to_disp_name,
-        title_color=title_color,
-    )
+        size_ghost_ax.spines[["left", "right", "top", "bottom"]].set_visible(
+            False
+        )
 
     if isinstance(save_path, (str, os.PathLike)):
         fig.savefig(save_path, bbox_inches="tight", transparent=True, dpi=dpi)
@@ -1417,4 +1515,8 @@ def scatter_plot(
         return ax
 
     if show:
-        fig.show()
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            fig.show()
+    else:
+        plt.close(fig)
