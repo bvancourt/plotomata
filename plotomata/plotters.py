@@ -1,5 +1,8 @@
 """
 This module contains the user-facing plotting functions for plotomata package.
+They are sort of wrapper functions for another module, _strict_plotters, which
+does the actual plotting, but requires input in rigidly defines formats, whereas
+the plotters functions interpret a flexible "language" of arguments.
 """
 
 import importlib
@@ -58,17 +61,13 @@ importlib.reload(style_packets)
 importlib.reload(_utils)
 
 
-def _stacked_bars(
-    data_df,
-    style_packet,
-    ax
-) -> Axes:
+def _stacked_bars(data_df, style_packet, ax) -> Axes:
     return ax
 
-def _color_legend(
-    ax
-) -> Axes:
+
+def _color_legend(ax) -> Axes:
     return ax
+
 
 def _size_legend():
     pass
