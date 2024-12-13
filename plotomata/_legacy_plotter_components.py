@@ -1,14 +1,15 @@
 """
-This module will store miscelaneous small bits of useful code.
+Additional file of code used by legacy_plotters.py
 """
 
 import importlib
 
 try:
-    from . import color_sets
+    from . import color_palettes, _utils
 
-    importlib.reload(color_sets)
-    from .color_sets import Color
+    importlib.reload(color_palettes)
+    from .color_palettes import Color
+    from ._utils import PassthroughDict
 except ImportError as ie:
     # normal import style above may not work with reticulate_source.py
     try:
@@ -16,16 +17,17 @@ except ImportError as ie:
         import sys
 
         sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
-        import color_sets
+        import color_palettes, _utils
 
-        importlib.reload(color_sets)
-        from color_sets import Color
+        importlib.reload(color_palettes)
+        from color_palettes import Color
+        from _utils import PassthroughDict
     except ImportError as ie2:
         raise ie2 from ie
 except Exception as e:
     raise ImportError from e
 
-from typing import TypeAlias, Callable, Hashable
+from typing import Callable, Hashable
 from functools import cache
 import numpy as np
 import matplotlib.pyplot as plt
@@ -35,30 +37,8 @@ import pandas as pd
 from pandas.core.series import Series
 from numpy.typing import NDArray
 
-Arrayable: TypeAlias = NDArray | list | pd.DataFrame | Series
 
-
-class PassthroughDict(dict):
-    """
-    Slightly modified dictionary that returns the key rather than raising an
-    an error when you try to get an item with a key it doesn't have. This is
-    useful for the "disp_names" dictionaries used in various plotter functions.
-    """
-
-    def __missing__(self, key):
-        return key
-
-
-def invert_dictionary(
-    dictionary: dict[Hashable, Hashable],
-    passthrough: bool = False,
-):
-    if passthrough:
-        return PassthroughDict(
-            {value: key for key, value in dictionary.items()}
-        )
-    else:
-        return {value: key for key, value in dictionary.items()}
+Arrayable = NDArray | list | pd.DataFrame | Series
 
 
 def standardize_arrayable(
