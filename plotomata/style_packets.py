@@ -55,9 +55,11 @@ except ImportError as ie:
 except Exception as e:
     raise ImportError from e
 
+import warnings
 from dataclasses import dataclass
 from collections.abc import Hashable
 import logging
+import numpy as np
 
 
 @dataclass(slots=True)
@@ -70,23 +72,31 @@ class LabelGroup:
     """
 
     keys: list[Hashable]  # definitive ordered list of the members.
-    display_names: PassthroughDict[str, str]
-    colors: dict[str, Color]
+    display_names: PassthroughDict[Hashable, str]
+    colors: dict[Hashable, Color]
 
     def __post_init__(self):
+        # Convert display names to PassthroughDict, in case they came vanilla.
         if not isinstance(self.display_names, PassthroughDict):
             self.display_names = PassthroughDict(self.display_names)
 
+        # Convert all colors to Color, in case the started as something else.
+        for key, color in self.colors.items():
+            if not isinstance(color, Color):
+                self.colors[key] = Color(color)
+
         self.assert_validity()
 
-    def assert_validity(self):
+    def assert_validity(self) -> None:
         assert isinstance(self.keys, list)
         assert all_are_instances(self.keys, Hashable)
         assert isinstance(self.display_names, PassthroughDict)
-        assert all_are_instances(self.display_names.values(), str)
-        assert all_are_instances(self.display_names.keys(), Hashable)
+        if len(self.display_names) > 0:
+            assert all_are_instances(self.display_names.values(), str)
+            assert all_are_instances(self.display_names.keys(), Hashable)
         assert isinstance(self.colors, dict)
-        assert all_are_instances(self.colors, Color)
+        if len(self.colors) > 0:
+            assert all_are_instances(self.colors.values(), Color)
 
 
 @dataclass(slots=True)
@@ -99,7 +109,85 @@ class StylePacket:
     formatting.
     """
 
-    label_groups: set[LabelGroup]
+    label_groups: list[LabelGroup]  # last overrides previous
+    outer_margin: tuple[float, float] = (0.1, 0.1)
+    inner_margin: tuple[float, float] = (0.1, 0.1)
+    subplot_margins: tuple[float, float] = (0.2, 0.2)
+
+    def __post_init__(self):
+        self.label_groups = list(self.label_groups)
+        self.outer_margin = (self.outer_margin[0], self.outer_margin[1])
+        self.assert_validity()
+
+    def assert_validity(self):
+        assert isinstance(self.label_groups, list)
+        assert all_are_instances(self.label_groups, LabelGroup)
+        assert isinstance(self.outer_margin, tuple)
+        assert len(self.outer_margin) == 2
+        assert all_are_instances(self.outer_margin, float)
+        assert self.outer_margin[0] >= 0 and self.outer_margin[1] >= 0
+        assert isinstance(self.inner_margin, tuple)
+        assert len(self.inner_margin) == 2
+        assert all_are_instances(self.inner_margin, float)
+        assert self.inner_margin[0] >= 0 and self.inner_margin[1] >= 0
+
+    @property
+    def display_names(self) -> PassthroughDict:
+        # This will behave as if StylePacket had a single display names
+        # PassthroughDict, but it actually makes a combined PassthroughDict from
+        # all LabelGroups.
+        combined_disp_names = PassthroughDict({})
+        for lg in self.label_groups:
+            for key, value in lg.display_names.items():
+                combined_disp_names[key] = value
+
+        return combined_disp_names
+
+    def list_display_names(
+        self,
+        keys: list[Hashable],
+    ) -> list[Hashable]:
+        """
+        Given a list of possible keys, this function will convert them to
+        display names using only the only label group that contaings the most
+        keys.
+        """
+        assert isinstance(keys, list)
+        assert all_are_instances(keys, Hashable)
+
+        best_dict = PassthroughDict({})
+        best_score = 0
+        for lg in self.label_groups:
+            # select the label group with the most matching keys
+            score = np.sum([key in lg.display_names for key in keys])
+            if score >= best_score:
+                best_score = score
+                best_dict = lg.display_names
+
+        return [best_dict[key] for key in keys]
+
+    def list_colors(
+        self,
+        keys: list[Hashable],
+    ) -> list[Hashable]:
+        """
+        Given a list of possible keys, this function will convert them to
+        display names using only the only label group that contaings the most
+        keys.
+        """
+        assert isinstance(keys, list)
+        assert all_are_instances(keys, Hashable)
+
+        best_colors = {}
+        best_score = 0
+        for lg in self.label_groups:
+            # select the label group with the most matching keys
+            score = np.sum([key in lg.colors for key in keys])
+            if score >= best_score:
+                best_score = score
+                best_colors = lg.colors
+
+        return [best_colors[key] for key in keys]
 
 
 logging_level_from_string = {
@@ -118,11 +206,12 @@ class SettingsPacket:
     responsible for logging.
     """
 
-    name: str
+    name: str = "<unnamed>"
     default_parser_scope: str = "next_hit"
     expert_mode: bool = False  # for risker but more powerful behavior
     logging_output_path: os.PathLike | None = None
     _logging_level: int = logging.INFO
+    skip_asserts: bool = False
 
     @property
     def logging_level(self):

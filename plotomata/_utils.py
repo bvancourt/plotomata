@@ -3,6 +3,7 @@ This module holds miscelaneous utilities that are used by other modules but do
 not clearly fall withingh their scope.
 """
 
+import re
 import warnings
 from typing import Callable, Generator, Iterable
 from collections.abc import Hashable
@@ -19,15 +20,22 @@ class PassthroughDict(dict):
     to be inverted (swapping the keys with the values).
     """
 
-    def __new__(cls, dictionary: dict):
-        self = super().__new__(cls, dictionary)
+    def __new__(cls, *args, **kwargs):
+        self = super().__new__(cls, *args, **kwargs)
+        # There can be at most 1 arg, which would have to be a dict.
+        if len(args) > 0:
+            assert len(args) == 1
+            assert isinstance(args[0], dict)
+            input_dict = args[0] | kwargs
+        else:
+            input_dict = kwargs
         if not all(
-            (isinstance(value, Hashable) for value in dictionary.values())
+            [isinstance(value, Hashable) for value in input_dict.values()]
         ):
             unhashables = [
                 f"{key} : {value}"
-                for key, value in dictionary.items()
-                if isinstance(dictionary[key], Hashable)
+                for key, value in kwargs.items()
+                if isinstance(self[key], Hashable)
             ]
             raise TypeError(
                 "PassthroughDict.__init__() recieved unhashable value(s) "
@@ -163,3 +171,13 @@ def all_are_instances(iterable, specified_type):
 
 
 possible_parser_scopes = {"global", "next_arg", "next_hit"}
+
+
+def is_tuple_as_string(possible_tuple_as_string):
+    return bool(
+        re.fullmatch(
+            r"\((?:\s*(?:[+-]?\d+(?:\.\d*)?|\'.*?\'|True|False|None|\([^\)]*\)"
+            + r"|[A-Za-z_][A-Za-z0-9_]*)(?:\s*,\s*(?!\s*\))\s*)?)*\s*\)",
+            possible_tuple_as_string,
+        )
+    )

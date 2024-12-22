@@ -136,6 +136,7 @@ def legacy_bar_plot(
             f"disp_names should be of type dict, not {type(disp_names)}.\n"
         )
 
+    # re-order rows and columns
     if column_order is None:
         col_list = [str(key) for key in data_df.columns]
     else:
@@ -146,6 +147,7 @@ def legacy_bar_plot(
     else:
         row_list = [str(data_df.index[i_row]) for i_row in row_order]
 
+    # Make dictionary of bar colors
     if colors == "tab20":
         colors_dict = {
             str(key): tab20_colors[i] for i, key in enumerate(row_list)
@@ -170,6 +172,7 @@ def legacy_bar_plot(
     else:
         raise ValueError(f"colors={colors} not supported.\n")
 
+    # make dictionary of column colors (i.e. for x tick labels)
     if col_colors == "tab20":
         col_colors_dict = {
             str(key): tab20_colors[i] for i, key in enumerate(col_list)
@@ -1144,7 +1147,10 @@ def legacy_scatter_plot(
         cat_set = set(c_raw)  # type: ignore
 
         if color_palette == "tab20":
-            colors_dict = tab20_colors  # like Matplotlib
+            colors_dict = {
+                i: color
+                for i, color in enumerate(tab20_colors)  # like Matplotlib
+            }
             n_colors = 20
 
         elif (
@@ -1152,12 +1158,18 @@ def legacy_scatter_plot(
             or (color_palette is False)
             or (color_palette is None)
         ):
-            colors_dict = nb50_colors
+            colors_dict = {
+                i: color
+                for i, color in enumerate(nb50_colors)  # like Matplotlib
+            }
             n_colors = 50
 
         elif isinstance(color_palette, dict):
             colors_dict = color_palette
-            default_colors = nb50_colors
+            default_colors = {
+                i: color
+                for i, color in enumerate(nb50_colors)  # like Matplotlib
+            }
             default_colors_index = 0
             for key in cat_set:  # type: ignore
                 if not key in color_palette:

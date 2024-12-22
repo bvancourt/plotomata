@@ -1,7 +1,6 @@
 """
 Plotomata provides tools for creating collections of high-quality, consistently
-formatted plots (e.g. for a scientific paper). At this stage in development, 
-it use is not recommended, but it will eventualy be great.
+formatted plots (e.g. for a scientific paper).
 """
 
 from . import plotters

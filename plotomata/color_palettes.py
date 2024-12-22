@@ -2,9 +2,49 @@
 This module defines standard sets of colors and other color-related code.
 """
 
+import importlib
+import os
+
+# Load plotomata component modules
+try:
+    from . import _utils
+
+    importlib.reload(_utils)
+
+    from ._utils import is_tuple_as_string
+
+except ImportError as ie:
+    # Alternative import style for non-standard import (source_reticulate.py).
+    try:
+        import sys
+
+        sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
+
+        import _utils
+
+        importlib.reload(_utils)
+
+        from _utils import is_tuple_as_string
+
+    except ImportError:
+        raise ImportError(
+            "plotomata failed to import component modules.\n"
+        ) from ie
+
+    except Exception as e:
+        raise ImportError(
+            "Unexpected error while importing plotomata component modules.\n"
+        ) from e
+
+except Exception as e:
+    raise ImportError from e
+
+
 import colorsys
 from collections.abc import Iterable
 import os
+import re
+import ast
 import numpy as np
 from numpy.typing import NDArray
 import matplotlib.pyplot as plt
@@ -19,33 +59,6 @@ PossibleColor = (  # types that might be interpretable as a color
     | NDArray  # e.g. np.array((r, g, b))
     | str  # e.g. #ffffff
 )
-
-
-# These are the characters that could be interpreted as hexadecimal digits.
-_hex_chars = {
-    "0",
-    "1",
-    "2",
-    "3",
-    "4",
-    "5",
-    "6",
-    "7",
-    "8",
-    "9",
-    "a",
-    "A",
-    "b",
-    "B",
-    "c",
-    "C",
-    "d",
-    "D",
-    "e",
-    "E",
-    "f",
-    "F",
-}
 
 
 class Color(tuple):
@@ -89,7 +102,8 @@ class Color(tuple):
         elif isinstance(possible_color, str):
             # idea: support tuple as string? e.g. "(255, 0, 128, 255)"
             stripped_str = possible_color.removeprefix("#").removeprefix("0x")
-            if all(char in _hex_chars for char in stripped_str):
+
+            if bool(re.fullmatch(r"^[0-9A-Fa-f]+$", stripped_str)):
                 if len(stripped_str) == 6:  # r, g, b in hex
                     r_in = int(stripped_str[0:2], 16)
                     g_in = int(stripped_str[2:4], 16)
@@ -100,6 +114,16 @@ class Color(tuple):
                     g_in = int(stripped_str[2:4], 16)
                     b_in = int(stripped_str[4:6], 16)
                     a_in = int(stripped_str[6:8], 16)
+            elif is_tuple_as_string(possible_color):
+                tuple_from_string = ast.literal_eval(possible_color)
+                if len(tuple_from_string) in {3, 4}:
+                    return Color(*tuple_from_string)
+                else:
+                    raise ValueError(
+                        f"Possible color {possible_color} was interpreted as a "
+                        + "string representation of a tuple, but it had the wr"
+                        + f"ong length ({len(tuple_from_string)}, not 3 or 4)."
+                    )
             else:
                 raise TypeError(
                     f"str {possible_color} could not be interpreted as a color."
@@ -211,7 +235,13 @@ class Color(tuple):
                 self.alpha,
             )
         else:
-            raise TypeError(f"Attempted to divide a Color by {number}.")
+            raise TypeError(f"Attempted to divide a Color by {number}.\n")
+
+    def __repr__(self):
+        return (
+            f"Color(red={self.red}, green={self.green}, blue={self.blue}, "
+            + f"alpha={self.alpha})"
+        )
 
 
 # Matplotlib default colors:
@@ -237,6 +267,7 @@ _npy_nb50 = np.clip(
     0,
     1,
 )
+
 _nb50_order = np.arange(1, 51) % 50
 nb50_colors: dict[int, Color] = [
     Color(_npy_nb50[i_old, 0], _npy_nb50[i_old, 1], _npy_nb50[i_old, 2], 1.0)
