@@ -17,8 +17,9 @@ def test_Color_input_types():
     e = Color(1 / 255, 2 / 255, 3 / 255, 1.0)
     f = Color(np.array((1 / 255, 2 / 255, 3 / 255, 1.0)))
     g = Color(np.array([1, 2, 3, 255]))
+    h = Color("(1, 2, 3, 255)")
 
-    assert a == b == c == d == e == f == g
+    assert a == b == c == d == e == f == g == h
 
 
 def test_Color_hsv_adjust(transparent_magenta):

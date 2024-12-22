@@ -10,6 +10,7 @@ from plotomata._input_parsing import (
     Transformation,
     CommandNames,
     ParserState,
+    ParsingDirective,
     _args_to_parser_words,
     _process_array,
     _process_callable,
@@ -64,6 +65,17 @@ def junk_tuple(test_dict, test_data_frame):
     )
 
 
+@pytest.fixture
+def monotone_scatter_directive():
+    return ParsingDirective.monochrome_scatter()
+
+
+@pytest.fixture
+def default_parser_sate():
+    settings = SettingsPacket()
+    return ParserState.initial_state(settings)
+
+
 def test_Numeric_to_Colors_conversion(numbers_pw):
     colors_pw = numbers_pw.to_color_if_possible()
     assert isinstance(colors_pw, Colors)
@@ -109,8 +121,11 @@ def test_Transformation_init():
     assert isinstance(transformation, Transformation)
 
 
-def test__args_to_parser_words_no_errors(junk_tuple):
-    parser_words = _args_to_parser_words(junk_tuple)
+def test__args_to_parser_words_no_errors(default_parser_sate, junk_tuple):
+    settings = SettingsPacket()
+    parser_words = _args_to_parser_words(
+        default_parser_sate, settings, junk_tuple
+    )
     assert len(parser_words) == 14
 
 
@@ -120,13 +135,13 @@ def test__process_array():
     assert len(pwl[0]) == 7
 
 
-def test__process_data_frame(test_data_frame):
+def test__process_data_frame(test_data_frame, default_parser_sate):
     # If the DataFrame has a non-default index, it should be treated as Labels,
     #   in an extra ParserWord following the columns.
     indexed_df = test_data_frame
     indexed_df.index = test_data_frame[test_data_frame.columns[0]]
 
-    parser_words = _process_data_frame(0, indexed_df)
+    parser_words = _process_data_frame(0, indexed_df, default_parser_sate)
 
     assert isinstance(parser_words[3], Labels)
 
@@ -136,18 +151,22 @@ def test__process_callable():
     assert isinstance(pwl[0], Transformation)
 
 
-def test__process_dict(test_dict):
-    pwl0 = _process_dict(0, test_dict)
+def test__process_dict(test_dict, default_parser_sate):
+    settings = SettingsPacket()
+
+    pwl0 = _process_dict(0, test_dict, default_parser_sate, settings)
     assert len(pwl0) == 3
     assert isinstance(pwl0[0], Numeric)
     assert isinstance(pwl0[1], Numeric)
     assert isinstance(pwl0[2], Labels)
 
-    pwl1 = _process_dict(0, {"1": 1, "2": 2})
+    pwl1 = _process_dict(0, {"1": 1, "2": 2}, default_parser_sate, settings)
     assert len(pwl1) == 1
     assert isinstance(pwl1[0], Numeric)
 
-    pwl2 = _process_dict(0, {"1": "one", "2": "two"})
+    pwl2 = _process_dict(
+        0, {"1": "one", "2": "two"}, default_parser_sate, settings
+    )
     assert len(pwl2) == 1
     assert isinstance(pwl2[0], Labels)
 
@@ -185,11 +204,17 @@ def test__process_string():
     assert isinstance(pwl1[0], Labels)
 
 
-def test__process_tuple(junk_tuple):
-    pwl0 = _process_tuple(0, junk_tuple)
+def test__process_tuple(junk_tuple, default_parser_sate):
+    settings = SettingsPacket()
+    pwl0 = _process_tuple(0, junk_tuple, default_parser_sate, settings)
     assert len(pwl0) == 14
 
-    pwl1 = _process_tuple(0, Color(0.1, 0.5, 0.8, 0.3))
+    pwl1 = _process_tuple(
+        0,
+        Color(0.1, 0.5, 0.8, 0.3),
+        default_parser_sate,
+        settings,
+    )
     assert len(pwl1) == 1
     assert isinstance(pwl1[0], Colors)
 
@@ -209,8 +234,9 @@ def test_ParserState_obey():
     assert ps.scope == "global"
 
 
-def test_ParserState_possible_referents_mask(junk_tuple):
-    words = _args_to_parser_words(*junk_tuple)
+def test_ParserState_possible_referents_mask(default_parser_sate, junk_tuple):
+    settings = SettingsPacket()
+    words = _args_to_parser_words(default_parser_sate, settings, *junk_tuple)
     settings = SettingsPacket(default_parser_scope="next_hit")
     ps = ParserState.initial_state(settings)
     mask = ps.possible_referents_mask(words, 0)
@@ -225,3 +251,50 @@ def test_ParserState_possible_referents_mask(junk_tuple):
     ps = ParserState.initial_state(settings)
     mask = ps.possible_referents_mask(words, 8)
     assert np.sum(mask) == 6
+
+
+def test_ParsingDirective_check_fulfillment(
+    monotone_scatter_directive, test_data_frame, default_parser_sate
+):
+    settings = SettingsPacket()
+    x, y, z = tuple(
+        _args_to_parser_words(
+            default_parser_sate,
+            settings,
+            test_data_frame,
+        )
+    )
+    assert monotone_scatter_directive.check_fulfillment(
+        equal_length_required_candidates={"x": x, "y": y}
+    )
+
+    # no unexpected keys
+    assert not monotone_scatter_directive.check_fulfillment(
+        equal_length_required_candidates={"x": x, "y": y, "z": z}
+    )
+
+    # point_names isn't required
+    assert not monotone_scatter_directive.check_fulfillment(
+        equal_length_required_candidates={"x": x, "y": y, "point_names": z}
+    )
+
+    assert monotone_scatter_directive.check_fulfillment(
+        equal_length_required_candidates={"x": x, "y": y},
+        equal_length_optional_candidates={"point_names": z},
+    )
+
+    # strings can't be size_data
+    assert not monotone_scatter_directive.check_fulfillment(
+        equal_length_required_candidates={"x": x, "y": y},
+        equal_length_optional_candidates={"size_data": z},
+    )
+
+    assert monotone_scatter_directive.check_fulfillment(
+        equal_length_required_candidates={"x": x, "y": y},
+        equal_length_optional_candidates={"size_data": y},
+    )
+
+    # strings can't be position data
+    assert not monotone_scatter_directive.check_fulfillment(
+        equal_length_required_candidates={"x": x, "y": z}
+    )

@@ -7,6 +7,7 @@ from plotomata._utils import (
     all_are_instances,
     is_nan_or_inf,
     DefaultList,
+    is_tuple_as_string,
 )
 
 
@@ -62,6 +63,7 @@ def test_all_are_instances():
     assert all_are_instances((2 for _ in range(1)), int) is True
     assert all_are_instances((2,), int) is True
     assert all_are_instances((2.0,), int) is False
+    assert all_are_instances({1: "one"}, str)
 
 
 def test_is_nan_or_inf():
@@ -78,3 +80,11 @@ def test_DefaultList():
     assert dl[-2] == 1
     assert dl[-3] == 3
     assert dl[-4:-1] == [3, 3, 1]
+
+
+def test_is_tuple_as_string():
+    assert is_tuple_as_string("(1, 2, '3', '$%^&*()')")
+    assert is_tuple_as_string("(1, 2, '3', '$%^&*()', )") is False
+    assert is_tuple_as_string("()")
+    assert is_tuple_as_string("(__, ZHBUHjbm, 2323)")
+    assert is_tuple_as_string("1, Z, __") is False
