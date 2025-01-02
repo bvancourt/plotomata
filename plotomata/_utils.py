@@ -5,6 +5,7 @@ not clearly fall withingh their scope.
 
 import re
 import warnings
+from enum import Enum, auto
 from typing import Callable, Generator, Iterable
 from collections.abc import Hashable
 import numpy as np
@@ -114,6 +115,15 @@ class InvalidTransformationFunc(Exception):
         self, message="Transformation should map any float to another float."
     ):
         self.message = message
+
+
+# It would make more sense for this to be defined in _input_parsing.py, but that
+#   would create a circular input in style_packets.py
+class ScopeModes(Enum):
+    GLOBAL = auto()
+    NEXT_ARG = auto()
+    NEXT_WORD = auto()
+    NEXT_HIT = auto()
 
 
 def is_nan_or_inf(array: NDArray) -> NDArray[np.bool_]:

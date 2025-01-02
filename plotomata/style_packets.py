@@ -12,17 +12,17 @@ import importlib
 
 # Load plotomata component modules
 try:
-    from . import color_palettes, _utils
+    from . import color_palettes
 
     importlib.reload(color_palettes)
-    importlib.reload(_utils)
 
-    from ._utils import (
+    from .color_palettes import (
+        Color,
+        # from _utils
         PassthroughDict,
-        possible_parser_scopes,
+        ScopeModes,
         all_are_instances,
     )
-    from .color_palettes import Color
 
 except ImportError as ie:
     # Alternative import style for non-standard import (source_reticulate.py).
@@ -30,17 +30,17 @@ except ImportError as ie:
         import sys
 
         sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
-        import color_palettes, _utils
+        import color_palettes
 
         importlib.reload(color_palettes)
-        importlib.reload(_utils)
 
-        from _utils import (
+        from color_palettes import (
+            Color,
+            # from _utils
             PassthroughDict,
-            possible_parser_scopes,
+            ScopeModes,
             all_are_instances,
         )
-        from color_palettes import Color
 
     except ImportError:
         raise ImportError(
@@ -56,6 +56,7 @@ except Exception as e:
     raise ImportError from e
 
 import warnings
+from enum import Enum, auto
 from dataclasses import dataclass
 from collections.abc import Hashable
 import logging
@@ -207,7 +208,18 @@ class SettingsPacket:
     """
 
     name: str = "<unnamed>"
-    default_parser_scope: str = "next_hit"
+    parser_default_scope: ScopeModes = ScopeModes.NEXT_HIT
+    parser_default_ignoring: bool = False
+    parser_default_read_as_color: bool = False
+    parser_default_read_as_matrix: bool = False
+    parser_default_assert_valid: bool = True
+
+    detach_legends: bool = True
+    detach_subplots: bool = True
+    save_csv_data: bool = True
+    allow_one_point_plots: bool = True
+    prefer_longer_data: bool = True
+
     expert_mode: bool = False  # for risker but more powerful behavior
     logging_output_path: os.PathLike | None = None
     _logging_level: int = logging.INFO
@@ -261,7 +273,11 @@ class SettingsPacket:
         return self
 
     def assert_validity(self):
-        assert self.default_parser_scope in possible_parser_scopes
+        assert self.parser_default_scope in ScopeModes.__members__.values()
+        assert isinstance(self.parser_default_ignoring, bool)
+        assert isinstance(self.parser_default_read_as_color, bool)
+        assert isinstance(self.parser_default_read_as_matrix, bool)
+        assert isinstance(self.parser_default_assert_valid, bool)
         assert isinstance(self.expert_mode, bool)
         assert (self.logging_output_path is None) or isinstance(
             self.logging_output_path, (os.PathLike, str)

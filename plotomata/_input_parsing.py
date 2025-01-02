@@ -17,9 +17,9 @@ try:
     from ._utils import (
         PassthroughDict,
         DefaultList,
+        ScopeModes,
         wrap_transformation_func,
         all_are_instances,
-        possible_parser_scopes,
     )
     from .color_palettes import Color
     from .style_packets import SettingsPacket
@@ -39,9 +39,9 @@ except ImportError as ie:
         from _utils import (
             PassthroughDict,
             DefaultList,
+            ScopeModes,
             wrap_transformation_func,
             all_are_instances,
-            possible_parser_scopes,
         )
         from color_palettes import Color
         from style_packets import SettingsPacket
@@ -150,7 +150,54 @@ class InvalidParserState(Exception):
 
 @dataclass(slots=True)
 class Matrix(ParserWord):
-    pass
+    """
+    Matrix data, e.g. such as image/heatmap values.
+    """
+
+    numbers: NDArray[np.floating | np.integer]
+    axis_0_labels: list[Hashable] = None
+    axis_1_labels: list[Hashable] = None
+    name: Hashable | None = None
+    assert_valid: bool = True
+
+    def assert_validity(self):
+        if (
+            ParserWord.assert_validity(self)
+            and isinstance(self.name, Hashable)
+            and isinstance(self.numbers, (dict, np.ndarray, set))
+            and isinstance(self.assert_valid, bool)
+            and (
+                np.issubdtype(self.numbers.dtype, np.floating)
+                or np.issubdtype(self.numbers.dtype, np.integer)
+            )
+            and (self.numbers.shape[0] == len(self.axis_0_labels))
+            and (self.numbers.shape[1] == len(self.axis_1_labels))
+        ):
+            return True
+        elif self.assert_valid is False:
+            warnings.warn(
+                "Attempted to assert validity of an invalid Matrix(ParserWord)"
+                + ". This did not raise an error because it also had attribute"
+                + " assert_valid=False.\n"
+            )
+        else:
+            raise MalformedParserWord(
+                f"{str(self)} is not a valid Matrix(ParserWord)."
+            )
+
+    def __post_init__(self):
+        if not self.axis_0_labels:
+            self.axis_0_labels = list(range(self.numbers.shape[0]))
+            self.axis_1_labels = list(range(self.numbers.shape[1]))
+
+        ParserWord.__post_init__(self)
+
+        if self.assert_valid:
+            self.assert_validity()
+
+    @property
+    def shape(self):
+        return self.numbers.shape
 
 
 @dataclass(slots=True)
@@ -330,7 +377,7 @@ class Labels(ParserWord):
             # self could be a list of other words or elements to apply a
             #   command, transformation, or color to.
         ) and (
-            (other.name in self.labels)
+            (hasattr(other, "name") and (other.name in self.labels))
             or (
                 isinstance(other, Numeric)
                 and isinstance(other.numbers, dict)
@@ -442,12 +489,25 @@ class Command(ParserWord):
 
     command: CommandNames
 
+    @classmethod
+    def from_name(cls, arg_indices, command_name):
+        if isinstance(command_name, CommandNames):
+            return cls(arg_indices, command_name)
+
+        elif command_name in CommandNames.__members__:
+            return cls(arg_indices, CommandNames[command_name])
+
     def could_refer_to(self, other):
         # note that READ_AS_MATRIX must return false, because it refers to args
         #   not ParserWords. This is not how READ_AS_COLOR works.
         if (
             (
-                (self.command == CommandNames.GLOBAL)
+                (
+                    (self.command == CommandNames.GLOBAL)
+                    or (self.command == CommandNames.NEXT_ARG)
+                    or (self.command == CommandNames.NEXT_WORD)
+                    or (self.command == CommandNames.NEXT_HIT)
+                )
                 and (
                     isinstance(other, Transformation)
                     or (isinstance(other, Colors) and (len(other) == 1))
@@ -490,38 +550,96 @@ class Transformation(ParserWord):
         return isinstance(other, Numeric)
 
 
+class ParserInternalHitCodes(Enum):
+    IGNORED = -1
+    READ_COLOR = -2
+    READ_MATRIX = -3
+    USED_SCOPE = -4
+
+
+@dataclass
 class ParserState:
     """
     Holds temporary internal state information of the parser.
     """
 
-    def __init__(
-        self,
-        scope: str,
-        assert_valid: bool = True,
-    ):
-        self.scope: str = scope
-        self.ignoring: bool = False
-        self.convert_to_color: bool = False
-        self.read_as_matrix: bool = False
+    default_scope: ScopeModes = ScopeModes.GLOBAL
+    ignoring_is_default: bool = False
+    convert_to_color_is_default: bool = False
+    read_as_matrix_is_default: bool = False
+    assert_valid: bool = True
 
-        self.set_attribute_scopes()
+    def __post_init__(self):
+        # _stack attributes are lists of tuples, where the first element of the
+        #   last tuple determines the actual scope, ignoring, etc. status. The
+        #   second element of each tuple is a ScopeMode, which determines when
+        #   that tuple might be removed form the list.
 
-        if assert_valid:
+        self._scope_stack: list[tuple[ScopeModes, ScopeModes]] = [
+            (self.default_scope, ScopeModes.GLOBAL)
+        ]
+        self._ignoring_stack: list[tuple[bool, ScopeModes]] = [
+            (self.ignoring_is_default, ScopeModes.GLOBAL)
+        ]
+        self._convert_to_color_stack: list[tuple[bool, ScopeModes]] = [
+            (self.convert_to_color_is_default, ScopeModes.GLOBAL)
+        ]
+        self._read_as_matrix_stack: list[tuple[bool, ScopeModes]] = [
+            (self.read_as_matrix_is_default, ScopeModes.GLOBAL)
+        ]
+        self._indices_pending_hit: set[int] = set()
+        self.current_word_index = 0
+
+        if self.assert_valid:
             self.assert_validity()
 
-    def set_attribute_scopes(self):
-        self.scope_scope: str = "global"
-        self.ignoring_scope: str = "global"
-        self.convert_to_color_scope: str = "global"
-        self.read_as_matrix_scope: str = "global"
+    @property
+    def scope(self):
+        return self._scope_stack[-1][0]
+
+    @scope.setter
+    def scope(self, value: ScopeModes):
+        assert isinstance(value, ScopeModes)
+        return self._scope_stack.append((value, self.scope))
+
+    @property
+    def ignoring(self):
+        return self._ignoring_stack[-1][0]
+
+    @ignoring.setter
+    def ignoring(self, value: bool):
+        assert isinstance(value, bool)
+        return self._ignoring_stack.append((value, self.scope))
+
+    @property
+    def convert_to_color(self):
+        return self._convert_to_color_stack[-1][0]
+
+    @convert_to_color.setter
+    def convert_to_color(self, value: bool):
+        assert isinstance(value, bool)
+        return self._convert_to_color_stack.append((value, self.scope))
+
+    @property
+    def read_as_matrix(self):
+        return self._read_as_matrix_stack[-1][0]
+
+    @read_as_matrix.setter
+    def read_as_matrix(self, value: bool):
+        assert isinstance(value, bool)
+        return self._read_as_matrix_stack.append((value, self.scope))
 
     def __eq__(self, other):
+        """
+        note: this will return true if the two parser states are momentarily,
+            functioanlly identical; _stack differences are not captured.
+        """
         if (
             isinstance(other, ParserState)
             and (self.scope == other.scope)
             and (self.ignoring == other.ignoring)
             and (self.convert_to_color == other.convert_to_color)
+            and (self.read_as_matrix == other.read_as_matrix)
         ):
             return True
         else:
@@ -530,26 +648,63 @@ class ParserState:
     @classmethod
     def initial_state(cls, settings):
         return cls(
-            settings.default_parser_scope,
+            default_scope=settings.parser_default_scope,
+            ignoring_is_default=settings.parser_default_ignoring,
+            convert_to_color_is_default=settings.parser_default_read_as_color,
+            read_as_matrix_is_default=settings.parser_default_read_as_matrix,
+            assert_valid=settings.parser_default_assert_valid,
         )
 
     def assert_validity(self):
-        assert self.scope in {"global", "next_arg", "next_hit"}
+        assert self.scope in ScopeModes.__members__.values()
         assert isinstance(self.ignoring, bool)
         assert isinstance(self.convert_to_color, bool)
+        assert isinstance(self.read_as_matrix, bool)
+        # for _stack
+
+    def _stack_tuple_stuff(self):
+        if self.scope is ScopeModes.NEXT_HIT:
+            return (self.scope, self.current_word_index)
+        else:
+            return (self.scope,)
 
     def obey(self, command):
         if isinstance(command, Command):
             match command.command:
                 case CommandNames.GLOBAL:
-                    self.scope_scope = self.scope
-                    self.scope = "global"
+                    self._scope_stack.append(
+                        (ScopeModes.GLOBAL, *self._stack_tuple_stuff())
+                    )
+                case CommandNames.NEXT_WORD:
+                    self._scope_stack.append(
+                        (ScopeModes.NEXT_WORD, *self._stack_tuple_stuff())
+                    )
+                case CommandNames.NEXT_ARG:
+                    self._scope_stack.append(
+                        (ScopeModes.NEXT_ARG, *self._stack_tuple_stuff())
+                    )
+                case CommandNames.NEXT_HIT:
+                    self._scope_stack.append(
+                        (ScopeModes.NEXT_HIT, *self._stack_tuple_stuff())
+                    )
                 case CommandNames.IGNORE:
-                    self.ignoring = True
+                    self._ignoring_stack.append(
+                        (True, *self._stack_tuple_stuff())
+                    )
                 case CommandNames.READ_AS_COLOR:
-                    self.convert_to_color = True
+                    self._convert_to_color_stack.append(
+                        (True, *self._stack_tuple_stuff())
+                    )
                 case CommandNames.READ_AS_MATRIX:
-                    self.read_as_matrix = True
+                    self._read_as_matrix_stack.append(
+                        (True, *self._stack_tuple_stuff())
+                    )
+                case _:
+                    raise MalformedParserWord(
+                        "ParserState.obey() recieved unrecognized command "
+                        + str(command.command)
+                    )
+            self.hit_tick(ParserInternalHitCodes.USED_SCOPE)
         else:
             raise TypeError(
                 "ParserState can only obey a Command, not {command}.\n"
@@ -560,12 +715,17 @@ class ParserState:
             [words[word_index].could_refer_to(word) for word in words]
         )
 
-        if self.scope == "global":
+        if self.scope in {
+            ScopeModes.GLOBAL,
+            ScopeModes.NEXT_WORD,
+            ScopeModes.NEXT_HIT,
+        }:
             # select all other words, at least within the tuple if this word
-            # came form an element of a tuple within the args.
+            # came from an element of a tuple within the args.
+
             if len(words[word_index].arg_indices) > 1:
                 return (
-                    (np.arange(len(words)) != word_index)
+                    (np.arange(len(words)) > word_index)
                     & np.array(
                         [
                             (
@@ -575,7 +735,7 @@ class ParserState:
                                 ]
                             )
                             and (i != word_index)
-                            for i, word in words
+                            for i, word in enumerate(words)
                         ]
                     )
                     & compatibility_mask
@@ -585,7 +745,7 @@ class ParserState:
                     np.arange(len(words)) != word_index
                 ) & compatibility_mask
 
-        elif self.scope == "next_arg":
+        elif self.scope == ScopeModes.NEXT_ARG:
             # Select words with the "next" arg_indices (slightly complicated,
             #   because tuple args may be treated as having sub-args).
             next_arg_indices = copy.deepcopy(words[word_index].arg_indices)
@@ -601,45 +761,62 @@ class ParserState:
                 & compatibility_mask
             )
 
-        elif self.scope == "next_hit":
-            # Select words just the next compatible word.
-            mask = np.zeros(len(words), dtype=np.bool_)
-            for i in range(word_index, len(words)):
-                if compatibility_mask[i]:
-                    mask[i] = True
-                    break
-            return mask
-
-        elif self.scope in possible_parser_scopes:
+        elif self.scope in ScopeModes.__members__.values():
             raise InvalidParserState(
                 f"ParserState.scope = {self.scope} present in "
-                + "_input_parsing.possible_parser_scopes, but not implemented "
+                + "_utils.ScopeModes.__members__, but not implemented "
                 + "in ParserState.possible_referents_mask() (oops)."
             )
 
         else:
             raise InvalidParserState(
-                "ParserState.scope = {self.scope} is not valid. It must be in "
-                + f"{possible_parser_scopes}."
+                "ParserState.scope = {self.scope} is not "
+                + f"valid. It must be in {ScopeModes.__members__}.\n"
             )
 
     def arg_tick(self):
-        if self.scope == "next_arg":
-            self.ignoring = self.global_ignoring
-            self.convert_to_color = self.global_convert_to_color
-            self.read_as_matrix = self.global_read_as_matrix
-
-        if self.scope_scope == "next_arg":
-            self.scope = self.global_scope
+        self.word_tick()
+        for _stack in [
+            self._convert_to_color_stack,
+            self._ignoring_stack,
+            self._read_as_matrix_stack,
+            self._scope_stack,
+        ]:
+            _stack = [
+                item for item in _stack if not item[1] is ScopeModes.NEXT_ARG
+            ]
 
     def word_tick(self):
-        if self.scope == "next_word":
-            self.ignoring = self.global_ignoring
-            self.convert_to_color = self.global_convert_to_color
-            self.read_as_matrix = self.global_read_as_matrix
+        for _stack in [
+            self._convert_to_color_stack,
+            self._ignoring_stack,
+            self._read_as_matrix_stack,
+            self._scope_stack,
+        ]:
+            _stack = [
+                item for item in _stack if not item[1] is ScopeModes.NEXT_WORD
+            ]
 
-        if self.scope_scope == "next_word":
-            self.scope = self.global_scope
+        self.current_word_index += 1
+
+    def hit_tick(self, hitter_index):
+        if hitter_index in self._indices_pending_hit:
+            self._indices_pending_hit.remove(hitter_index)
+
+            for _stack in [
+                self._convert_to_color_stack,
+                self._ignoring_stack,
+                self._read_as_matrix_stack,
+                self._scope_stack,
+            ]:
+                _stack = [
+                    item
+                    for item in _stack
+                    if not (
+                        (item[1] is ScopeModes.NEXT_HIT)
+                        and (item[2] == hitter_index)
+                    )
+                ]
 
 
 def _process_data_frame(
@@ -647,10 +824,21 @@ def _process_data_frame(
     data_frame: pd.DataFrame,
     parser_state: ParserState,
 ) -> list[ParserWord]:
-    if parser_state.read_as_matrix:
-        pass
+    potential_matrix = all(
+        pd.api.types.is_numeric_dtype(data_frame[col])
+        for col in data_frame.columns
+    )
+    if parser_state.read_as_matrix and potential_matrix:
+        parser_state.hit_tick(ParserInternalHitCodes.READ_MATRIX)
+        return [
+            Matrix(
+                arg_indices=DefaultList([arg_index]),
+                numbers=np.array(data_frame),
+                axis_0_labels=list(data_frame.index),
+                axis_1_labels=list(data_frame.columns),
+            )
+        ]
     else:
-
         parser_words = []
         for col_index, col_key in enumerate(data_frame.columns):
             if pd.api.types.is_numeric_dtype(data_frame[col_key].dtype):
@@ -704,17 +892,22 @@ def _process_series(arg_index: int, series: Series) -> list[ParserWord]:
         ]
 
 
-def _process_array(arg_index: int, array: NDArray) -> list[ParserWord]:
-    if len(array.shape) == 1:
+def _process_array(
+    arg_index: int,
+    array: NDArray,
+    parser_state: ParserState,
+) -> list[ParserWord]:
+    if parser_state.read_as_matrix or (len(array.shape) == 2):
+        parser_state.hit_tick(ParserInternalHitCodes.READ_MATRIX)
         return [
-            Numeric(
+            Matrix(
                 arg_indices=DefaultList([arg_index]),
                 numbers=array,
             )
         ]
-    elif len(array.shape) == 2:
+    elif len(array.shape) == 1:
         return [
-            Matrix(
+            Numeric(
                 arg_indices=DefaultList([arg_index]),
                 numbers=array,
             )
@@ -744,6 +937,7 @@ def _process_dict(
                 numbers=dictionary,
             )
         ]
+
     elif all_are_instances(dictionary.values(), Hashable):
         return [
             Labels(
@@ -751,6 +945,7 @@ def _process_dict(
                 labels=dictionary,
             )
         ]
+
     elif all_are_instances(dictionary.values(), Color):
         return [
             Colors(
@@ -758,6 +953,7 @@ def _process_dict(
                 labels=dictionary,
             )
         ]
+
     else:  # dict could be used to specify names for ParserWords
         parser_words = []
         for name, value in dictionary.items():
@@ -775,7 +971,12 @@ def _process_dict(
         return parser_words
 
 
-def _process_list(arg_index: int, elements) -> list[ParserWord]:
+def _process_list(
+    arg_index: int,
+    elements: list,
+    parser_state: ParserState,
+    settings_packet: SettingsPacket,
+) -> list[ParserWord]:
     if all_are_instances(elements, (int, float)):
         return [
             Numeric(
@@ -785,14 +986,13 @@ def _process_list(arg_index: int, elements) -> list[ParserWord]:
         ]
 
     elif all_are_instances(elements, Hashable):
-        if all((elem in CommandNames.__members__ for elem in elements)):
-            return [
-                Command(
-                    arg_indices=DefaultList([arg_index]),
-                    command=CommandNames[elem],
-                )
-                for elem in elements
-            ]
+        if all(elem in CommandNames.__members__ for elem in elements):
+            return _process_tuple(
+                arg_index,
+                tuple(elements),
+                parser_state,
+                settings_packet,
+            )
 
         else:
             return [
@@ -801,11 +1001,18 @@ def _process_list(arg_index: int, elements) -> list[ParserWord]:
                     labels=elements,
                 )
             ]
+    else:
+        return _process_tuple(
+            arg_index,
+            tuple(elements),
+            parser_state,
+            settings_packet,
+        )
 
 
 def _process_tuple(
     arg_index: int,
-    tuple_arg,
+    tuple_arg: tuple,
     parser_state: ParserState,
     settings_packet: SettingsPacket,
 ) -> list[ParserWord]:
@@ -891,10 +1098,12 @@ def _single_arg_to_parser_words(
             new_words = _process_series(arg_index, arg)
 
         case np.ndarray():
-            new_words = _process_array(arg_index, arg)
+            new_words = _process_array(arg_index, arg, parser_state)
 
         case list():
-            new_words = _process_list(arg_index, arg)
+            new_words = _process_list(
+                arg_index, arg, parser_state, settings_packet
+            )
 
         case dict():
             new_words = _process_dict(
@@ -913,6 +1122,12 @@ def _single_arg_to_parser_words(
             new_words = _process_string(arg_index, arg)
             if (len(new_words) == 1) and isinstance(new_words[0], Command):
                 parser_state.obey(new_words[0])
+                if new_words[0].command == CommandNames.IGNORE:
+                    # The ignore command changes the parser state to prevent
+                    #   subsequent words from being read on the first pass. It
+                    #   must also effectively prevent itself being read, to
+                    #   avoid having an unrelated effect on the second pass.
+                    new_words = []
 
         case ParserWord():
             arg.arg_index = arg_index
@@ -944,21 +1159,36 @@ def _args_to_parser_words(
     of the same information in the form of ParserWords. Each arg could produce
     several control items or none.
     """
+    settings_packet.logger.debug(
+        f"_args_to_parser_words() got {len(args)} args."
+    )
     parser_words: list[ParserWord] = []
+    # indices_pending_hit: list[int] = []
     for arg_index, arg in enumerate(args):
-        new_parser_words, parser_state = _single_arg_to_parser_words(
-            arg,
-            arg_index,
-            parser_state,
-            settings_packet,
-        )
+        if parser_state.ignoring:
+            settings_packet.logger.debug(f"ignored arg {arg}.")
+            parser_state.hit_tick(ParserInternalHitCodes.IGNORED)
+            new_parser_words = []
+        else:
+            new_parser_words, parser_state = _single_arg_to_parser_words(
+                arg,
+                arg_index,
+                parser_state,
+                settings_packet,
+            )
 
         for pw in new_parser_words:
             if isinstance(pw, Command):
                 parser_state.obey(pw)
             parser_state.word_tick()
+            # for word_index in indices_pending_hit:
+            #    if parser_words[word_index].could_refer_to(pw):
+            #        # This currently doesn't do anything,
+            #        indices_pending_hit.remove(word_index)
+            # if parser_state.scope == ScopeModes.NEXT_HIT:
+            #    indices_pending_hit.append(len(parser_words))
 
-        parser_words += new_parser_words
+            parser_words.append(pw)
 
         parser_state.arg_tick()
     return parser_words
@@ -971,6 +1201,20 @@ class ParserWordTypes(Enum):
     LABELS = auto()
     COMMAND = auto()
     TRANSFORMATION = auto()
+
+    def to_class(self):
+        if self is ParserWordTypes.NUMERIC:
+            return Numeric
+        elif self is ParserWordTypes.MATRIX:
+            return Matrix
+        elif self is ParserWordTypes.COLORS:
+            return Colors
+        elif self is ParserWordTypes.LABELS:
+            return Labels
+        elif self is ParserWordTypes.COMMAND:
+            return Command
+        elif self is ParserWordTypes.TRANSFORMATION:
+            return Transformation
 
 
 parser_word_types_info = pd.DataFrame(
@@ -990,9 +1234,9 @@ parser_word_types_info = pd.DataFrame(
 
 
 @dataclass
-class ParsingDirective:
+class PlotDataRequirements:
     """
-    ParsingDirective objects essentially specify the data required (or that
+    PlotDataRequirement objects essentially specify the data required (or that
     could optionally be used) to make a particular type of plot. For example,
     a scatter plot requires paired X and Y coordinate Numerics or equal length,
     and can additionally incorporate up to two more as size and color data, as
@@ -1029,19 +1273,34 @@ class ParsingDirective:
 
     def check_fulfillment(
         self,
-        equal_length_required_candidates: dict[str, ParserWord] = None,
-        equal_length_optional_candidates: dict[str, ParserWord] = None,
-        individual_required_candidates: dict[str, ParserWord] = None,
-        individual_optional_candidates: dict[str, ParserWord] = None,
+        data: dict[str, ParserWord],
     ):
-        if not equal_length_required_candidates:
-            equal_length_required_candidates = {}
-        if not equal_length_optional_candidates:
-            equal_length_optional_candidates = {}
-        if not individual_required_candidates:
-            individual_required_candidates = {}
-        if not individual_optional_candidates:
-            individual_optional_candidates = {}
+        equal_length_required_candidates: dict[str, ParserWord] = {
+            key: data[key] for key in self.equal_length_required
+        }
+        equal_length_optional_candidates: dict[str, ParserWord] = {
+            key: value
+            for key, value in data.items()
+            if key in self.equal_length_optional
+        }
+        individual_required_candidates: dict[str, ParserWord] = {
+            key: data[key] for key in self.individual_required
+        }
+        individual_optional_candidates: dict[str, ParserWord] = {
+            key: value
+            for key, value in data.items()
+            if key in self.individual_optional
+        }
+
+        for key in data:
+            # no unrecognized keys allowed
+            if not (
+                (key in self.equal_length_optional)
+                | (key in self.equal_length_required)
+                | (key in self.individual_optional)
+                | (key in self.individual_required)
+            ):
+                return False
 
         if len(equal_length_required_candidates) > 0:
             correct_length = len(
@@ -1053,7 +1312,7 @@ class ParsingDirective:
             )
         else:
             logging.info(
-                "ParsingDirective.check_fulfillment recieved no equal-length "
+                "PlotDataRequirement.check_fulfillment recieved no equal-length "
                 + "candidates."
             )
             correct_length = -1
@@ -1214,6 +1473,7 @@ class ParsingDirective:
             },
             individual_optional={
                 "size_transformation": ParserWordTypes.TRANSFORMATION,
+                "size_scale": ParserWordTypes.NUMERIC,
                 "title": ParserWordTypes.LABELS,
                 "x_label": ParserWordTypes.LABELS,
                 "y_label": ParserWordTypes.LABELS,
@@ -1223,27 +1483,52 @@ class ParsingDirective:
 
 
 def _arg_parser(
-    requirements: list[ParsingDirective], settings: SettingsPacket, *args
+    requirements: list[PlotDataRequirements],
+    settings: SettingsPacket,
+    *args,
 ):
     """
     This function converts arguments from the user into a ParserWord list, then
     analyzes the "grammar" of that list to determine which items modify others,
     and what purposes they should fill in making a plot.
 
-    "directive" provides context about what to search for (e.g. x, y, c)
+    requirements provides context about what to search for (e.g. x, y, c)
     values for a color-map scatter plot
     """
 
     # First pass over args to get words list
     state: ParserState = ParserState.initial_state(settings)
     words: list[ParserWord] = _args_to_parser_words(state, settings, *args)
-    reference_matrix = np.zeros([len(words)] * 2, dtype=np.bool_)
 
-    # Second pass over words to build reference matrix
-    last_arg_depth = 1
+    numeric_lengths: list[int] = [
+        len(word) for word in words if isinstance(word, Numeric)
+    ]
+
+    labels_lengths: list[int] = [
+        len(word) for word in words if isinstance(word, Labels)
+    ]
+
+    colors_lengths: list[int] = [
+        len(word) for word in words if isinstance(word, Colors)
+    ]
+
+    word_lengths_set: set[int] = (
+        set(numeric_lengths) | set(labels_lengths) | set(colors_lengths)
+    )
+
+    # Second pass over words to build reference matrix and length_scores
+    reference_matrix = np.zeros([len(words)] * 2, dtype=np.bool_)
+    state = ParserState.initial_state(settings)
+    # last_arg_depth = 1
+    last_arg_indices = [-1]
     state_backups = []
     for i, word in enumerate(words):
-        if not state.ignoring:
+        state.current_word_index = i  # redundant with an effect of word_tick()
+
+        last_arg_depth = len(last_arg_indices)
+        if state.ignoring:
+            state.hit_tick(ParserInternalHitCodes.IGNORED)
+        else:
             # manage state context for potentially nested tuples of args
             this_arg_depth = len(word.arg_indices)
             if this_arg_depth > last_arg_depth:
@@ -1261,17 +1546,146 @@ def _arg_parser(
                 state.obey(word)
 
         state.word_tick()
-        last_arg_depth = this_arg_depth
+        if not last_arg_indices == word.arg_indices:
+            state.arg_tick()
+            last_arg_indices = word.arg_indices
+
+    for plot_req in requirements:
+        n_eq_len_numerics_needed = np.sum(
+            [
+                pw_type is ParserWordTypes.NUMERIC
+                for pw_type in plot_req.equal_length_required
+            ]
+        )
+        n_eq_len_labels_needed = np.sum(
+            [
+                pw_type is ParserWordTypes.LABELS
+                for pw_type in plot_req.equal_length_required
+            ]
+        )
+        n_eq_len_colors_needed = np.sum(
+            [
+                pw_type is ParserWordTypes.COLORS
+                for pw_type in plot_req.equal_length_required
+            ]
+        )
+        n_eq_len_numerics_optional = np.sum(
+            [
+                pw_type is ParserWordTypes.NUMERIC
+                for pw_type in plot_req.equal_length_optional
+            ]
+        )
+        n_eq_len_labels_optional = np.sum(
+            [
+                pw_type is ParserWordTypes.LABELS
+                for pw_type in plot_req.equal_length_optional
+            ]
+        )
+        n_eq_len_colors_optional = np.sum(
+            [
+                pw_type is ParserWordTypes.COLORS
+                for pw_type in plot_req.equal_length_optional
+            ]
+        )
+        best_length: int = -1  # If a viable length is found, this will change.
+        best_score: int = -1  # The length with the highest score will be used.
+        for candidate_length in word_lengths_set:
+            if (candidate_length == 1) and not settings.allow_one_point_plots:
+                continue
+            n_eq_len_numerics_available = np.sum(
+                [
+                    numeric_length == candidate_length
+                    for numeric_length in numeric_lengths
+                ]
+            )
+            n_eq_len_labels_available = np.sum(
+                [
+                    labels_length == candidate_length
+                    for labels_length in labels_lengths
+                ]
+            )
+            n_eq_len_colors_available = np.sum(
+                [
+                    colors_length == candidate_length
+                    for colors_length in colors_lengths
+                ]
+            )
+            if (
+                (n_eq_len_numerics_available >= n_eq_len_numerics_needed)
+                and (n_eq_len_labels_available >= n_eq_len_labels_needed)
+                and (n_eq_len_colors_available >= n_eq_len_colors_needed)
+            ):
+                # there is enough data of length candidate_length to continue
+                score = (
+                    n_eq_len_numerics_available
+                    - n_eq_len_numerics_needed
+                    + n_eq_len_labels_available
+                    - n_eq_len_labels_needed
+                    + n_eq_len_colors_available
+                    - n_eq_len_colors_needed
+                    + np.log(candidate_length) * settings.prefer_longer_data
+                )
+                if score > best_score:
+                    best_score = score
+                    best_length = candidate_length
+
+        if best_score >= 0:
+            # There must be at least one viable candidate.
+            data_for_plot = {}
+            for word in words:
+                word_used = False
+                if len(word) == best_length:
+                    for key, value in plot_req.equal_length_required.items():
+                        if (key not in data_for_plot) and isinstance(
+                            word, value.to_class()
+                        ):
+                            data_for_plot[key] = word
+                            word_used = True
+                            break
+
+                if (len(word) == 1) and not word_used:
+                    for key, value in plot_req.individual_required.items():
+                        if (key not in data_for_plot) and isinstance(
+                            word, value.to_class()
+                        ):
+                            data_for_plot[key] = word
+                            word_used = True
+                            break
+
+                if (len(word) == best_length) and not word_used:
+                    for key, value in plot_req.equal_length_optional.items():
+                        if (key not in data_for_plot) and isinstance(
+                            word, value.to_class()
+                        ):
+                            data_for_plot[key] = word
+                            word_used = True
+                            break
+
+                if (len(word) == 1) and not word_used:
+                    for key, value in plot_req.individual_optional.items():
+                        if (key not in data_for_plot) and isinstance(
+                            word, value.to_class()
+                        ):
+                            data_for_plot[key] = word
+                            word_used = True
+                            break
+
+        else:
+            settings.logger.warning(
+                f"Data provided could not satisfy requirements {plot_req}.\n"
+            )
 
     # Third pass over words with reference matrix guided by directive
     state = ParserState.initial_state(settings)
     last_arg_indices = [-1]
     state_backups = []
     for i, word in enumerate(words):
-        if not state.ignoring:
+        this_arg_depth = len(word.arg_indices)
+        last_arg_depth = len(last_arg_indices)
+        if state.ignoring:
+            state.hit_tick(ParserInternalHitCodes.IGNORED)
+        else:
             # manage state context for potentially nested tuples of args
-            this_arg_depth = len(word.arg_indices)
-            last_arg_depth = len(last_arg_indices)
             if this_arg_depth > last_arg_depth:
                 # when entering a tuple, back up state
                 state_backups += [copy.deepcopy(state)] * (

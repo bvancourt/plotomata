@@ -11,7 +11,12 @@ try:
 
     importlib.reload(_utils)
 
-    from ._utils import is_tuple_as_string
+    from ._utils import (
+        is_tuple_as_string,
+        PassthroughDict,
+        ScopeModes,
+        all_are_instances,
+    )
 
 except ImportError as ie:
     # Alternative import style for non-standard import (source_reticulate.py).
@@ -24,7 +29,12 @@ except ImportError as ie:
 
         importlib.reload(_utils)
 
-        from _utils import is_tuple_as_string
+        from _utils import (
+            is_tuple_as_string,
+            PassthroughDict,
+            ScopeModes,
+            all_are_instances,
+        )
 
     except ImportError:
         raise ImportError(

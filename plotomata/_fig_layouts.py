@@ -33,6 +33,7 @@ else:
     import os
 
 
+from dataclasses import dataclass
 from enum import Enum, auto
 import matplotlib.pyplot as plt
 import numpy as np
@@ -53,6 +54,7 @@ class ElementContraintTypes(Enum):
     JOIN_TOP = auto()
 
 
+@dataclass
 class FigureElement:
     """
     This represents a rectangular area of a figure with something on it. It is
@@ -60,10 +62,14 @@ class FigureElement:
     used directly.
     """
 
-    pass
+    width: float
+    height: float
+    shape_is_fixed: bool
+    depends_on: list[str] | None
 
 
-class AxesElement(FigureElement):
+@dataclass
+class PlotElement(FigureElement):
     """
     This could represent axes used for actual plotting or peripheral elements
     such as legends and colorbars, which will also get matplotlib Axes.
@@ -72,6 +78,17 @@ class AxesElement(FigureElement):
     pass
 
 
+@dataclass
+class LegendElement(FigureElement):
+    """
+    This represents a legend, colorbar, or similar peripheral bit of image
+    associated with a plot element.
+    """
+
+    pass
+
+
+@dataclass
 class NoAxesElement(FigureElement):
     """
     This represents the space on a Figure taken up by ticks and axis lables.
@@ -80,7 +97,11 @@ class NoAxesElement(FigureElement):
     pass
 
 
-class HyperFig:
+class InvalidHyperfig(Exception):
+    pass
+
+
+class Hyperfig:
     """
     This class represents a sort of generalized version of a matplotlib figure,
     which could have one Figure with multiple Axes or multiple connected
@@ -92,14 +113,43 @@ class HyperFig:
 
     def __init__(
         self,
-        elements: dict[str, AxesElement | NoAxesElement],
+        elements: dict[str, PlotElement | LegendElement | NoAxesElement],
         constraints: list[tuple[ElementContraintTypes, str, str]],
+        settings_packet: SettingsPacket,
     ):
-        pass
+        self.elements = elements
+        self.constraints = constraints
+        self.settings_packet = settings_packet
 
     def make_figs(
         self,
         style_packet: SettingsPacket,
-        settings_packet: SettingsPacket,
     ):
         pass
+
+    def assert_validity(self):
+        for name, element in self.elements.items():
+            if element.depends_on is not None:
+                for other_name in element.depends_on:
+                    if not other_name in self.elements:
+                        raise InvalidHyperfig(
+                            f"element {name} depends on {other_name}, "
+                            + "which was not found in self.elements.\n"
+                        )
+
+        for constrain_type, subject_name, object_name in self.constraints:
+            if not subject_name in self.elements:
+                raise InvalidHyperfig(
+                    f"{constrain_type} constraint depends on {subject_name}, "
+                    + "subject which was not found in self.elements.\n"
+                )
+
+            if not object_name in self.elements:
+                raise InvalidHyperfig(
+                    f"{constrain_type} constraint depends on {object_name}, "
+                    + "object which was not found in self.elements.\n"
+                )
+
+            assert isinstance(constrain_type, ElementContraintTypes)
+
+            self.settings_packet.assert_validity()

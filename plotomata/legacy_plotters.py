@@ -8,14 +8,10 @@ plot.
 import importlib
 
 try:
-    from . import color_palettes, _utils, _legacy_plotter_components
+    from . import _legacy_plotter_components
 
-    importlib.reload(color_palettes)
-    importlib.reload(_utils)
     importlib.reload(_legacy_plotter_components)
 
-    from .color_palettes import tab20_colors, nb50_colors, Color, PossibleColor
-    from ._utils import PassthroughDict
     from ._legacy_plotter_components import (
         Arrayable,
         label_axes_etc,
@@ -23,6 +19,13 @@ try:
         surrogate_size_legend_info_automatic,
         standardize_arrayable,
         labels_from_data,
+        # from _utils
+        PassthroughDict,
+        # from color_palettes
+        tab20_colors,
+        nb50_colors,
+        Color,
+        PossibleColor,
     )
 except ImportError as ie:
     # normal import style above may not work with reticulate_source.py
@@ -31,19 +34,10 @@ except ImportError as ie:
         import sys
 
         sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
-        import color_palettes, _utils, _legacy_plotter_components
+        import _legacy_plotter_components
 
-        importlib.reload(color_palettes)
-        importlib.reload(_utils)
         importlib.reload(_legacy_plotter_components)
 
-        from color_palettes import (
-            tab20_colors,
-            nb50_colors,
-            Color,
-            PossibleColor,
-        )
-        from _utils import PassthroughDict
         from _legacy_plotter_components import (
             Arrayable,
             label_axes_etc,
@@ -51,6 +45,13 @@ except ImportError as ie:
             surrogate_size_legend_info_automatic,
             standardize_arrayable,
             labels_from_data,
+            # from _utils
+            PassthroughDict,
+            # from color_palettes
+            tab20_colors,
+            nb50_colors,
+            Color,
+            PossibleColor,
         )
     except ImportError as ie2:
         raise ie2 from ie

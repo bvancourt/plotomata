@@ -1,14 +1,19 @@
 import importlib
 
 try:
-    from . import color_palettes, style_packets, _utils
+    from . import style_packets
 
-    importlib.reload(color_palettes)
     importlib.reload(style_packets)
-    importlib.reload(_utils)
-    from .color_palettes import Color
-    from .style_packets import StylePacket, SettingsPacket
-    from ._utils import all_are_instances
+
+    from .style_packets import (
+        StylePacket,
+        SettingsPacket,
+        # from _utils
+        all_are_instances,
+        # from color_palettes
+        Color,
+    )
+
 except ImportError as ie:
     # normal import style above may not work with reticulate_source.py
     try:
@@ -16,14 +21,17 @@ except ImportError as ie:
         import sys
 
         sys.path.insert(0, os.path.split(os.path.abspath(__file__))[0])
-        import color_palettes, style_packets, _utils
+        import style_packets
 
-        importlib.reload(color_palettes)
         importlib.reload(style_packets)
-        importlib.reload(_utils)
-        from color_palettes import Color
-        from style_packets import StylePacket, SettingsPacket
-        from _utils import all_are_instances
+
+        from style_packets import (
+            StylePacket,
+            SettingsPacket,
+            all_are_instances,
+            Color,
+        )
+
     except ImportError as ie2:
         raise ie2 from ie
 except Exception as e:

@@ -8,8 +8,10 @@ try:
     from . import color_palettes, _utils
 
     importlib.reload(color_palettes)
-    from .color_palettes import Color
+    from .color_palettes import Color, tab20_colors, nb50_colors, PossibleColor
     from ._utils import PassthroughDict
+
+
 except ImportError as ie:
     # normal import style above may not work with reticulate_source.py
     try:
@@ -20,7 +22,12 @@ except ImportError as ie:
         import color_palettes, _utils
 
         importlib.reload(color_palettes)
-        from color_palettes import Color
+        from color_palettes import (
+            Color,
+            tab20_colors,
+            nb50_colors,
+            PossibleColor,
+        )
         from _utils import PassthroughDict
     except ImportError as ie2:
         raise ie2 from ie

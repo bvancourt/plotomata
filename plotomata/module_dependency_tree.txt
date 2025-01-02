@@ -1,0 +1,15 @@
+plotters
+    _utils
+    color_palettes
+_strict_plotters
+    style_packets
+        color_palettes
+            _utils
+_fig_layouts
+    style_packets
+        color_palettes
+            _utils
+legacy_plotters
+    _legacy_plotter_components
+        color_palettes
+            _utils
