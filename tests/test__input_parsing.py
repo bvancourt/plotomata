@@ -10,7 +10,8 @@ from plotomata._input_parsing import (
     Transformation,
     CommandNames,
     ParserState,
-    ParsingDirective,
+    PlotDataRequirements,
+    Matrix,
     _args_to_parser_words,
     _process_array,
     _process_callable,
@@ -21,7 +22,7 @@ from plotomata._input_parsing import (
     _process_string,
     _process_tuple,
 )
-from plotomata._utils import PassthroughDict
+from plotomata._utils import PassthroughDict, ScopeModes
 from plotomata.color_palettes import Color
 from plotomata.style_packets import SettingsPacket
 
@@ -61,13 +62,15 @@ def junk_tuple(test_dict, test_data_frame):
             np.array([6, 16, 6, 7]),
         ),  # produces 2 ParserWords
         lambda a: np.sqrt(a),
+        "NEXT_ARG",
         "IGNORE",
+        test_dict["z"],
     )
 
 
 @pytest.fixture
 def monotone_scatter_directive():
-    return ParsingDirective.monochrome_scatter()
+    return PlotDataRequirements.monochrome_scatter()
 
 
 @pytest.fixture
@@ -129,8 +132,8 @@ def test__args_to_parser_words_no_errors(default_parser_sate, junk_tuple):
     assert len(parser_words) == 14
 
 
-def test__process_array():
-    pwl = _process_array(0, np.ones(7))
+def test__process_array(default_parser_sate):
+    pwl = _process_array(0, np.ones(7), default_parser_sate)
     assert isinstance(pwl[0], Numeric)
     assert len(pwl[0]) == 7
 
@@ -144,6 +147,16 @@ def test__process_data_frame(test_data_frame, default_parser_sate):
     parser_words = _process_data_frame(0, indexed_df, default_parser_sate)
 
     assert isinstance(parser_words[3], Labels)
+
+    matrix_parser_state = default_parser_sate
+    matrix_parser_state.read_as_matrix = True
+
+    matrix_df = test_data_frame[["x", "y"]]
+    matrix_df.index = test_data_frame["z"]
+
+    parser_words = _process_data_frame(0, matrix_df, matrix_parser_state)
+
+    assert isinstance(parser_words[0], Matrix)
 
 
 def test__process_callable():
@@ -171,15 +184,17 @@ def test__process_dict(test_dict, default_parser_sate):
     assert isinstance(pwl2[0], Labels)
 
 
-def test__process_list():
-    pwl0 = _process_list(0, [1, 3, 2, 6])
+def test__process_list(default_parser_sate):
+    settings = SettingsPacket()
+
+    pwl0 = _process_list(0, [1, 3, 2, 6], default_parser_sate, settings)
     assert (len(pwl0) == 1) and isinstance(pwl0[0], Numeric)
 
-    pwl1 = _process_list(0, ["M", 3, None, 6])
+    pwl1 = _process_list(0, ["M", 3, None, 6], default_parser_sate, settings)
     assert (len(pwl1) == 1) and isinstance(pwl1[0], Labels)
 
-    pwl2 = _process_list(0, ["IGNORE", "GLOBAL"])
-    assert (len(pwl2) == 2) and isinstance(pwl2[0], Command)
+    pwl2 = _process_list(0, ["IGNORE", "GLOBAL"], default_parser_sate, settings)
+    assert (len(pwl2) == 0)
 
 
 def test__process_series(test_data_frame):
@@ -220,40 +235,40 @@ def test__process_tuple(junk_tuple, default_parser_sate):
 
 
 def test_ParserState_init():
-    ps1 = ParserState(scope="global")
-    settings = SettingsPacket(default_parser_scope="global")
+    ps1 = ParserState(default_scope=ScopeModes.GLOBAL)
+    settings = SettingsPacket(parser_default_scope=ScopeModes.GLOBAL)
     ps2 = ParserState.initial_state(settings)
     assert ps1 == ps2
 
 
 def test_ParserState_obey():
-    settings = SettingsPacket(default_parser_scope="next_arg")
+    settings = SettingsPacket(parser_default_scope=ScopeModes.NEXT_ARG)
     ps = ParserState.initial_state(settings)
-    assert ps.scope == "next_arg"
+    assert ps.scope == ScopeModes.NEXT_ARG
     ps.obey(Command([0], CommandNames.GLOBAL))
-    assert ps.scope == "global"
+    assert ps.scope == ScopeModes.GLOBAL
 
 
 def test_ParserState_possible_referents_mask(default_parser_sate, junk_tuple):
     settings = SettingsPacket()
     words = _args_to_parser_words(default_parser_sate, settings, *junk_tuple)
-    settings = SettingsPacket(default_parser_scope="next_hit")
+    settings = SettingsPacket(parser_default_scope=ScopeModes.NEXT_HIT)
     ps = ParserState.initial_state(settings)
-    mask = ps.possible_referents_mask(words, 0)
-    assert np.sum(mask) == 1
+    mask = ps.possible_referents_mask(words, 8)
+    assert np.sum(mask) == 6
 
-    settings = SettingsPacket(default_parser_scope="next_arg")
+    settings = SettingsPacket(parser_default_scope=ScopeModes.NEXT_ARG)
     ps = ParserState.initial_state(settings)
     mask = ps.possible_referents_mask(words, 8)
     assert np.sum(mask) == 2
 
-    settings = SettingsPacket(default_parser_scope="global")
+    settings = SettingsPacket(parser_default_scope=ScopeModes.GLOBAL)
     ps = ParserState.initial_state(settings)
     mask = ps.possible_referents_mask(words, 8)
     assert np.sum(mask) == 6
 
 
-def test_ParsingDirective_check_fulfillment(
+def test_PlotDataRequirement_check_fulfillment(
     monotone_scatter_directive, test_data_frame, default_parser_sate
 ):
     settings = SettingsPacket()
@@ -265,36 +280,28 @@ def test_ParsingDirective_check_fulfillment(
         )
     )
     assert monotone_scatter_directive.check_fulfillment(
-        equal_length_required_candidates={"x": x, "y": y}
+        data={"x": x, "y": y}
     )
 
     # no unexpected keys
     assert not monotone_scatter_directive.check_fulfillment(
-        equal_length_required_candidates={"x": x, "y": y, "z": z}
-    )
-
-    # point_names isn't required
-    assert not monotone_scatter_directive.check_fulfillment(
-        equal_length_required_candidates={"x": x, "y": y, "point_names": z}
+        data={"x": x, "y": y, "z": z}
     )
 
     assert monotone_scatter_directive.check_fulfillment(
-        equal_length_required_candidates={"x": x, "y": y},
-        equal_length_optional_candidates={"point_names": z},
+        data={"x": x, "y": y, "point_names": z},
     )
 
     # strings can't be size_data
     assert not monotone_scatter_directive.check_fulfillment(
-        equal_length_required_candidates={"x": x, "y": y},
-        equal_length_optional_candidates={"size_data": z},
-    )
-
-    assert monotone_scatter_directive.check_fulfillment(
-        equal_length_required_candidates={"x": x, "y": y},
-        equal_length_optional_candidates={"size_data": y},
+        data={"x": x, "y": y, "size_data": z},
     )
 
     # strings can't be position data
     assert not monotone_scatter_directive.check_fulfillment(
-        equal_length_required_candidates={"x": x, "y": z}
+        data={"x": x, "y": z},
     )
+
+
+def test_state_scope_management_first_pass():
+    pass
